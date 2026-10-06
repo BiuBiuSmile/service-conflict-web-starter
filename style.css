@@ -46,3 +46,72 @@ pre{white-space:pre-wrap;background:#0f172a;color:#cbd5e1;border-radius:12px;pad
   .grid{grid-template-columns:1fr}
   .hero{align-items:flex-start;flex-direction:column}
 }
+
+
+.issue-table-wrap{
+  width:100%;
+  overflow-x:auto;
+  border:1px solid #e2e8f0;
+  border-radius:12px;
+  background:#fff;
+}
+.issue-table{
+  width:100%;
+  border-collapse:collapse;
+  min-width:980px;
+  font-size:14px;
+}
+.issue-table th{
+  background:#f8fafc;
+  color:#334155;
+  text-align:left;
+  padding:12px 10px;
+  border-bottom:1px solid #dbe3ed;
+  white-space:nowrap;
+  position:sticky;
+  top:0;
+  z-index:1;
+}
+.issue-table td{
+  padding:12px 10px;
+  border-bottom:1px solid #edf2f7;
+  vertical-align:top;
+  line-height:1.55;
+}
+.issue-table tbody tr:hover{
+  background:#fafcff;
+}
+.issue-table tbody tr:last-child td{
+  border-bottom:0;
+}
+.issue-badge{
+  display:inline-block;
+  padding:4px 8px;
+  border-radius:999px;
+  background:#fee2e2;
+  color:#991b1b;
+  font-weight:700;
+  white-space:nowrap;
+}
+.col-no{
+  width:48px;
+  text-align:center;
+  color:#64748b;
+}
+.col-type{width:140px}
+.col-subject{width:120px;font-weight:700}
+.col-date{width:105px;white-space:nowrap}
+.col-minutes{width:80px;white-space:nowrap}
+.col-detail{min-width:440px}
+.col-detail strong{
+  display:inline-block;
+  width:18px;
+}
+.detail-gap{
+  height:6px;
+}
+@media(max-width:760px){
+  .issue-table{
+    min-width:860px;
+  }
+}
