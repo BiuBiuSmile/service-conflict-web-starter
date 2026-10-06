@@ -20,7 +20,7 @@ import websocket
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 PORT = 8765
 WEBSITE_URL = "https://biubiusmile.github.io/service-conflict-web-starter/"
 
@@ -936,7 +936,7 @@ def analyze_services(rows):
 
 @app.get("/health")
 def health():
-    return jsonify(ok=True, version=VERSION)
+    return jsonify(ok=True, version=VERSION, auth=True, admin=True)
 
 @app.post("/connect/<system>")
 @require_auth
@@ -1105,7 +1105,7 @@ def show_window():
     tk.Label(root, text="服務衝突連線器", font=("Microsoft JhengHei UI", 18, "bold")).pack(pady=(22, 8))
     tk.Label(
         root,
-        text=f"Connector 已啟動\nhttp://127.0.0.1:{PORT}",
+        text=f"Connector 已啟動 v{VERSION}\nhttp://127.0.0.1:{PORT}",
         font=("Microsoft JhengHei UI", 11),
         justify="center",
     ).pack(pady=8)
@@ -1129,7 +1129,7 @@ def show_window():
 
     tk.Label(
         root,
-        text="此版本不會修改開機啟動設定，也不會常駐系統列。",
+        text="請保持此連線器開啟，再回到網頁登入。",
         fg="#666666",
         font=("Microsoft JhengHei UI", 9),
     ).pack(pady=(8, 0))
