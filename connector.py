@@ -15,7 +15,7 @@ import websocket
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-VERSION = "0.4.1"
+VERSION = "0.4.2"
 PORT = 8765
 WEBSITE_URL = "https://biubiusmile.github.io/service-conflict-web-starter/"
 
@@ -290,19 +290,77 @@ def build_cdp_session(system):
     })
     return s
 
-def safe_json_get(session, url, tag, timeout=30):
-    response = session.get(url, timeout=timeout)
-    if response.status_code in (401, 403):
-        raise RuntimeError(
-            f"{tag}：照管登入資料已失效 (HTTP {response.status_code})"
-        )
-    response.raise_for_status()
+def browser_fetch_json(system, url, timeout=30):
+    page = _system_page(system)
+    if not page or not page.get("webSocketDebuggerUrl"):
+        raise RuntimeError(f"{SYSTEMS[system]['name']} 官方頁面尚未開啟。")
+
+    expression = (
+        "(async () => {"
+        "  const r = await fetch(" + json.dumps(url) + ", {"
+        "    method: 'GET',"
+        "    credentials: 'include',"
+        "    cache: 'no-store',"
+        "    headers: {"
+        "      'Accept': 'application/json, text/javascript, */*; q=0.01',"
+        "      'X-Requested-With': 'XMLHttpRequest'"
+        "    }"
+        "  });"
+        "  const text = await r.text();"
+        "  return {status:r.status, ok:r.ok, contentType:r.headers.get('content-type') || '', text:text};"
+        "})()"
+    )
+
+    result = _cdp_call(
+        page["webSocketDebuggerUrl"],
+        "Runtime.evaluate",
+        {
+            "expression": expression,
+            "awaitPromise": True,
+            "returnByValue": True,
+        },
+        call_id=205,
+    )
+
+    payload = result.get("result", {}).get("value")
+    if not isinstance(payload, dict):
+        raise RuntimeError("瀏覽器未回傳有效資料。")
+
+    status = int(payload.get("status") or 0)
+    if status in (401, 403):
+        raise RuntimeError(f"照管登入資料已失效 (HTTP {status})")
+    if not payload.get("ok"):
+        raise RuntimeError(f"照管查詢失敗 (HTTP {status})")
+
+    text = payload.get("text") or ""
     try:
-        return response.json()
+        return json.loads(text)
     except Exception:
         raise RuntimeError(
-            f"{tag}：照管回傳非 JSON，可能已回到登入頁。"
+            f"照管回傳非 JSON (Content-Type={payload.get('contentType','')})"
         )
+
+
+def safe_json_get(session, url, tag, timeout=30):
+    try:
+        response = session.get(url, timeout=timeout)
+        if response.status_code in (401, 403):
+            raise RuntimeError(
+                f"{tag}：照管登入資料已失效 (HTTP {response.status_code})"
+            )
+        response.raise_for_status()
+        try:
+            return response.json()
+        except Exception:
+            raise RuntimeError(
+                f"{tag}：照管回傳非 JSON，可能已回到登入頁。"
+            )
+
+    except requests.exceptions.SSLError:
+        # Python/OpenSSL 對照管憑證鏈驗證失敗時，
+        # 改由已登入的 Chrome 執行同源 fetch。
+        # 這不是關閉 SSL 驗證，仍由 Chrome 正常驗證 HTTPS。
+        return browser_fetch_json("lcms", url, timeout=timeout)
 
 def probe_lcms():
     if not cdp_available("lcms"):
