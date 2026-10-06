@@ -8,10 +8,11 @@
 </head>
 <body>
 <section id="authScreen" class="auth-screen">
-  <div class="auth-card auth-card-wide">
-    <div class="auth-brand">服務衝突檢查系統</div>
 
-    <div id="connectorStep">
+  <div id="connectorPage" class="auth-page">
+    <div class="auth-card auth-card-wide">
+      <div class="auth-brand">服務衝突檢查系統</div>
+
       <div class="auth-status-row">
         <div>
           <h1 id="connectorStepTitle">正在檢查連線器</h1>
@@ -30,12 +31,16 @@
           <button id="btnAuthRetryConnector">重新檢查</button>
         </div>
         <div class="install-help">
-          下載後開啟連線器即可，本頁會自動繼續。
+          下載後開啟連線器，本頁會自動進入登入畫面。
         </div>
       </div>
     </div>
+  </div>
 
-    <div id="authFormWrap" class="hidden">
+  <div id="loginPage" class="auth-page hidden">
+    <div class="auth-card">
+      <div class="auth-brand">服務衝突檢查系統</div>
+
       <h1 id="authTitle">帳號登入</h1>
       <p id="authSubtitle" class="muted">請輸入帳號及密碼</p>
 
@@ -60,6 +65,7 @@
       <div id="authMessage" class="auth-message"></div>
     </div>
   </div>
+
 </section>
 
 <main id="appShell" class="wrap hidden">
