@@ -8,6 +8,9 @@ a = Analysis(
     hiddenimports=[
         'tkinter',
         'tkinter.messagebox',
+        'websocket',
+        'websocket._core',
+        'websocket._http',
     ],
     hookspath=[],
     hooksconfig={},
