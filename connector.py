@@ -152,6 +152,366 @@ def browser_status(system):
     logged = cfg["host"] in lower and "/login" not in lower and "/signin" not in lower and lower.rstrip("/") != "https://luna.compal-health.com"
     return {"running": True, "logged_in": logged, "message": "已偵測到登入後頁面。" if logged else "等待使用者在官方頁面完成登入。", "url": url}
 
+
+LCMS_CASE_URL = (
+    "https://csms.mohw.gov.tw/lcms/ca/filter/"
+    "?caseno=&serialno=&name=&idno=&pi400aName="
+    "&_qd111Resp=&_qd1115Resp=&_qd111adjHint=&_qd111pi400Hint="
+    "&_checkAa10Rsp=&_qp110adjHint=&_flexErrHint=&_ca110Modify=&_caseDeath="
+    "&_uploadCc01=&_qp300HintPi400=&_qd300HintPi400=&_qd310HintPi400="
+    "&_cmsLowerB=&_fh410NotExistsB="
+    "&birthDt1=&birthDt2=&applyDt1=&applyDt2=&openDt1=&openDt2="
+    "&closeDt1=&closeDt2=&qevalDt1=&qevalDt2=&qmaxInstructDt1=&qmaxInstructDt2="
+    "&processDt1=&processD2=&applySource=&_hpCreated=&sextype=&applyType=&censusDiff="
+    "&aborigine=&raceType=&liveType=&isdisbook=&sptype=&cmsLev=&disLev=&levcode="
+    "&isSick=&discode=&qcntcode=&twnspcode=&vilgcode=&qinformCntcode="
+    "&informTwnspcode=&informVilgcode=&qQd120ServDt_b=&qQd120ServDt_e="
+    "&sb210id=&sb500id=&ca113exists=&qca113title=&qservUser=&sb400id="
+    "&doQuery=true&qdList1=yes&limit=100&offset=0&order=asc"
+)
+
+LCMS_QD120_URL = (
+    "https://csms.mohw.gov.tw/lcms/qd/filterQd120A/{case_id}"
+    "?doQuery=yes&ca100id={case_id}&perms=true&stype=&sourceType=&status="
+    "&servDt1=&servDt2=&qd120APi400=&servUserName=&aa10Status="
+    "&limit=100&offset=0&order=asc"
+)
+
+def _system_page(system):
+    cfg = SYSTEMS[system]
+    targets = cdp_json(system, "/json/list")
+    pages = [
+        x for x in targets
+        if isinstance(x, dict)
+        and x.get("type") == "page"
+        and cfg["host"] in str(x.get("url") or "")
+    ]
+    return pages[0] if pages else None
+
+def _cdp_call(ws_url, method, params=None, call_id=1):
+    ws = websocket.create_connection(ws_url, timeout=5, origin="http://localhost")
+    try:
+        ws.send(json.dumps({
+            "id": call_id,
+            "method": method,
+            "params": params or {},
+        }))
+        while True:
+            payload = json.loads(ws.recv())
+            if payload.get("id") == call_id:
+                if "error" in payload:
+                    raise RuntimeError(str(payload["error"]))
+                return payload.get("result", {})
+    finally:
+        try:
+            ws.close()
+        except Exception:
+            pass
+
+def build_cdp_session(system):
+    page = _system_page(system)
+    if not page or not page.get("webSocketDebuggerUrl"):
+        raise RuntimeError("找不到已開啟的官方頁面。")
+
+    ws_url = page["webSocketDebuggerUrl"]
+    cookie_result = _cdp_call(ws_url, "Storage.getCookies", call_id=101)
+    ua_result = _cdp_call(
+        ws_url,
+        "Runtime.evaluate",
+        {"expression": "navigator.userAgent", "returnByValue": True},
+        call_id=102,
+    )
+
+    s = requests.Session()
+    for ck in cookie_result.get("cookies", []) or []:
+        try:
+            s.cookies.set(
+                ck.get("name", ""),
+                ck.get("value", ""),
+                domain=ck.get("domain") or None,
+                path=ck.get("path") or "/",
+            )
+        except Exception:
+            pass
+
+    ua = ua_result.get("result", {}).get("value") or "Mozilla/5.0"
+    s.headers.update({
+        "User-Agent": ua,
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": SYSTEMS[system]["url"],
+    })
+    return s
+
+def safe_json_get(session, url, tag, timeout=30):
+    response = session.get(url, timeout=timeout)
+    if response.status_code in (401, 403):
+        raise RuntimeError(
+            f"{tag}：照管登入資料已失效 (HTTP {response.status_code})"
+        )
+    response.raise_for_status()
+    try:
+        return response.json()
+    except Exception:
+        raise RuntimeError(
+            f"{tag}：照管回傳非 JSON，可能已回到登入頁。"
+        )
+
+def probe_lcms():
+    if not cdp_available("lcms"):
+        return False, "照管專用 Chrome 尚未啟動。"
+    try:
+        session = build_cdp_session("lcms")
+        probe_url = re.sub(r"limit=\d+", "limit=1", LCMS_CASE_URL)
+        data = safe_json_get(session, probe_url, "照管狀態", timeout=10)
+        if isinstance(data, dict) and ("rows" in data or "total" in data):
+            return True, "照管 Session 有效。"
+        return False, "照管頁面已開啟，但尚未取得有效 Session。"
+    except Exception as e:
+        return False, str(e)
+
+def _safe_total(value, fallback):
+    try:
+        text = str(value).replace(",", "").strip()
+        return int(text)
+    except Exception:
+        return fallback
+
+def fetch_all_lcms_cases(session):
+    all_rows = []
+    offset = 0
+
+    while True:
+        url = re.sub(r"offset=\d+", f"offset={offset}", LCMS_CASE_URL)
+        data = safe_json_get(session, url, "CA_FILTER", timeout=30)
+        if not isinstance(data, dict):
+            raise RuntimeError("CA_FILTER 回傳格式不是物件。")
+
+        batch = data.get("rows", []) or []
+        if not isinstance(batch, list):
+            raise RuntimeError("CA_FILTER rows 格式異常。")
+
+        total = _safe_total(data.get("total"), len(batch))
+        all_rows.extend(batch)
+
+        if len(all_rows) >= total or len(batch) < 100:
+            break
+
+        offset += 100
+        if offset > 5000:
+            break
+
+    result = []
+    seen = set()
+    for row in all_rows:
+        if not isinstance(row, dict):
+            continue
+        case_id = row.get("id")
+        if not case_id:
+            continue
+        try:
+            case_id = int(case_id)
+        except Exception:
+            continue
+        if case_id in seen:
+            continue
+        seen.add(case_id)
+        result.append({
+            "id": case_id,
+            "name": str(row.get("name") or "(未取得姓名)").strip(),
+        })
+    return result
+
+def to_roc_encoded_date(d):
+    return f"{d.year - 1911}%2F{d.month:02d}%2F{d.day:02d}"
+
+def query_qd120_rows(session, case_id, selected_date):
+    base_url = LCMS_QD120_URL.format(case_id=case_id)
+    roc_date = to_roc_encoded_date(selected_date)
+    url0 = (
+        base_url
+        .replace("servDt1=&", f"servDt1={roc_date}&")
+        .replace("servDt2=&", f"servDt2={roc_date}&")
+    )
+
+    all_rows = []
+    offset = 0
+
+    while True:
+        url = re.sub(r"offset=\d+", f"offset={offset}", url0)
+        data = safe_json_get(session, url, "QD120A", timeout=30)
+        if not isinstance(data, dict):
+            raise RuntimeError("QD120A 回傳格式不是物件。")
+
+        batch = data.get("rows", []) or []
+        if not isinstance(batch, list):
+            raise RuntimeError("QD120A rows 格式異常。")
+
+        total = _safe_total(data.get("total"), len(batch))
+        all_rows.extend(batch)
+
+        if len(all_rows) >= total or len(batch) < 100:
+            break
+
+        offset += 100
+        if offset > 5000:
+            break
+
+    return all_rows
+
+def clean_text(value):
+    return re.sub(r"<.*?>", "", str(value or "")).strip()
+
+def parse_service_datetime(serv_dt, hhmm):
+    try:
+        date_text = str(serv_dt or "").strip()
+        if "/" in date_text:
+            y, m, d = date_text.split("/")[:3]
+        elif "-" in date_text:
+            y, m, d = date_text.split("-")[:3]
+        else:
+            return None, None
+
+        y = int(y)
+        if y < 200:
+            y += 1911
+
+        raw = re.sub(r"\[.*?\]", "", clean_text(hhmm))
+        raw = raw.replace("～", "~").replace("–", "-").replace("—", "-")
+
+        if "~" in raw:
+            t1, t2 = [x.strip() for x in raw.split("~", 1)]
+        elif "-" in raw:
+            t1, t2 = [x.strip() for x in raw.split("-", 1)]
+        else:
+            return None, None
+
+        start = datetime.strptime(
+            f"{y:04d}/{int(m):02d}/{int(d):02d} {t1}",
+            "%Y/%m/%d %H:%M",
+        )
+        end = datetime.strptime(
+            f"{y:04d}/{int(m):02d}/{int(d):02d} {t2}",
+            "%Y/%m/%d %H:%M",
+        )
+
+        if end <= start:
+            end += timedelta(days=1)
+
+        return start, end
+    except Exception:
+        return None, None
+
+def _first_value(row, keys, default=""):
+    for key in keys:
+        value = row.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return default
+
+def normalize_qd_row(case_id, case_name, row):
+    if not isinstance(row, dict):
+        return None
+
+    start, end = parse_service_datetime(
+        row.get("servDt", ""),
+        row.get("hhmm", ""),
+    )
+    if not start or not end:
+        return None
+
+    title = str(row.get("title") or "").strip()
+    code_match = re.match(r"([A-Z0-9]{3,5})", title)
+    code = code_match.group(1) if code_match else title
+
+    return {
+        "case_id": case_id,
+        "client": case_name,
+        "unit": _first_value(
+            row,
+            [
+                "orgName", "instName", "companyName", "sb400Name",
+                "sb400idName", "agencyName", "unitName", "providerName",
+            ],
+            "(未取得機構)",
+        ),
+        "worker": _first_value(
+            row,
+            [
+                "servUserName", "servUser", "servUserNm",
+                "servUserFullName", "userName", "workerName",
+                "caregiverName", "empName",
+            ],
+            "(未取得居服員)",
+        ),
+        "worker_id": _first_value(
+            row,
+            [
+                "servUserId", "servUserID", "servUserNo",
+                "employeeNo", "workerId", "empId", "sb210id",
+                "userId", "staffId",
+            ],
+            "",
+        ),
+        "title": title,
+        "code": code,
+        "date": start.strftime("%Y-%m-%d"),
+        "start": start.strftime("%H:%M"),
+        "end": end.strftime("%H:%M"),
+        "_start_dt": start,
+        "_end_dt": end,
+    }
+
+def analyze_services(rows):
+    issues = []
+    by_case = {}
+
+    for row in rows:
+        key = (row["case_id"], row["date"])
+        by_case.setdefault(key, []).append(row)
+
+    for (_, service_date), items in by_case.items():
+        items.sort(key=lambda x: x["_start_dt"])
+
+        for i, a in enumerate(items):
+            for b in items[i + 1:]:
+                if b["_start_dt"] >= a["_end_dt"]:
+                    break
+                if not (
+                    a["_start_dt"] < b["_end_dt"]
+                    and b["_start_dt"] < a["_end_dt"]
+                ):
+                    continue
+
+                overlap_start = max(a["_start_dt"], b["_start_dt"])
+                overlap_end = min(a["_end_dt"], b["_end_dt"])
+                minutes = max(
+                    1,
+                    int((overlap_end - overlap_start).total_seconds() // 60),
+                )
+
+                issues.append({
+                    "type": "case_overlap",
+                    "title": "服務時間重疊",
+                    "client": a["client"],
+                    "date": service_date,
+                    "minutes": minutes,
+                    "a": {
+                        k: a[k]
+                        for k in ("unit", "worker", "title", "start", "end")
+                    },
+                    "b": {
+                        k: b[k]
+                        for k in ("unit", "worker", "title", "start", "end")
+                    },
+                })
+
+    return issues, {
+        "total_services": len(rows),
+        "total_issues": len(issues),
+    }
+
+
 @app.get("/health")
 def health():
     return jsonify(ok=True, version=VERSION)
