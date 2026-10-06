@@ -81,21 +81,99 @@ function renderServerAnalysis(data) {
   const rows = data.rows || [];
   const issues = data.issues || [];
   const stats = data.stats || {};
-  $('summary').textContent = '共讀取 ' + (stats.total_services ?? rows.length) + ' 筆服務，掃描 ' + (stats.cases_scanned ?? 0) + ' 位個案，發現 ' + (stats.total_issues ?? issues.length) + ' 筆異常。';
+
+  $('summary').textContent =
+    '共讀取 ' + (stats.total_services ?? rows.length) +
+    ' 筆服務，掃描 ' + (stats.cases_scanned ?? 0) +
+    ' 位個案，發現 ' + (stats.total_issues ?? issues.length) + ' 筆異常。';
+
   if (!issues.length) {
-    $('results').innerHTML = '<div class="conflict ok"><strong>未發現服務重疊、居服員撞班或規則異常。</strong></div>';
+    $('results').innerHTML =
+      '<div class="conflict ok"><strong>未發現服務重疊、居服員撞班或規則異常。</strong></div>';
     return;
   }
-  const esc = (v) => String(v ?? '').replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
-  $('results').innerHTML = issues.map(x => {
+
+  const esc = (v) => String(v ?? '').replace(/[&<>\"]/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'
+  }[c]));
+
+  const rowsHtml = issues.map((x, index) => {
+    let typeText = x.title || '異常';
+    let subject = x.client || x.worker || '';
+    let detailA = '';
+    let detailB = '';
+    let minutes = x.minutes ? (x.minutes + ' 分鐘') : '';
+
     if (x.type === 'case_overlap') {
-      return '<div class="conflict"><strong>' + esc(x.title) + '</strong>｜' + esc(x.client) + '｜' + esc(x.date) + '｜重疊 ' + esc(x.minutes) + ' 分鐘<br>A：' + esc(x.a.unit) + '／' + esc(x.a.worker) + '／' + esc(x.a.title) + '／' + esc(x.a.start) + '-' + esc(x.a.end) + '<br>B：' + esc(x.b.unit) + '／' + esc(x.b.worker) + '／' + esc(x.b.title) + '／' + esc(x.b.start) + '-' + esc(x.b.end) + '</div>';
+      detailA =
+        '<div><strong>A</strong>｜' +
+        esc(x.a.unit) + '｜' +
+        esc(x.a.worker) + '｜' +
+        esc(x.a.title) + '｜' +
+        esc(x.a.start) + '-' + esc(x.a.end) +
+        '</div>';
+
+      detailB =
+        '<div><strong>B</strong>｜' +
+        esc(x.b.unit) + '｜' +
+        esc(x.b.worker) + '｜' +
+        esc(x.b.title) + '｜' +
+        esc(x.b.start) + '-' + esc(x.b.end) +
+        '</div>';
+    } else if (x.type === 'staff_overlap') {
+      typeText = '居服員撞班';
+      subject = x.worker || '';
+
+      detailA =
+        '<div><strong>A</strong>｜' +
+        esc(x.a.unit) + '｜' +
+        esc(x.a.client) + '｜' +
+        esc(x.a.title) + '｜' +
+        esc(x.a.start) + '-' + esc(x.a.end) +
+        '</div>';
+
+      detailB =
+        '<div><strong>B</strong>｜' +
+        esc(x.b.unit) + '｜' +
+        esc(x.b.client) + '｜' +
+        esc(x.b.title) + '｜' +
+        esc(x.b.start) + '-' + esc(x.b.end) +
+        '</div>';
+    } else {
+      detailA = esc(x.detail || '');
     }
-    if (x.type === 'staff_overlap') {
-      return '<div class="conflict"><strong>居服員撞班：' + esc(x.worker) + '</strong>｜' + esc(x.date) + '｜重疊 ' + esc(x.minutes) + ' 分鐘<br>A：' + esc(x.a.unit) + '／' + esc(x.a.client) + '／' + esc(x.a.title) + '／' + esc(x.a.start) + '-' + esc(x.a.end) + '<br>B：' + esc(x.b.unit) + '／' + esc(x.b.client) + '／' + esc(x.b.title) + '／' + esc(x.b.start) + '-' + esc(x.b.end) + '</div>';
-    }
-    return '<div class="conflict"><strong>' + esc(x.title) + '</strong>｜' + esc(x.client || '') + '｜' + esc(x.date || '') + '<br>' + esc(x.detail || '') + '</div>';
+
+    return (
+      '<tr>' +
+        '<td class="col-no">' + (index + 1) + '</td>' +
+        '<td class="col-type"><span class="issue-badge">' + esc(typeText) + '</span></td>' +
+        '<td class="col-subject">' + esc(subject) + '</td>' +
+        '<td class="col-date">' + esc(x.date || '') + '</td>' +
+        '<td class="col-minutes">' + esc(minutes) + '</td>' +
+        '<td class="col-detail">' +
+          detailA +
+          (detailB ? '<div class="detail-gap"></div>' + detailB : '') +
+        '</td>' +
+      '</tr>'
+    );
   }).join('');
+
+  $('results').innerHTML =
+    '<div class="issue-table-wrap">' +
+      '<table class="issue-table">' +
+        '<thead>' +
+          '<tr>' +
+            '<th>#</th>' +
+            '<th>異常類型</th>' +
+            '<th>個案／居服員</th>' +
+            '<th>日期</th>' +
+            '<th>重疊</th>' +
+            '<th>服務明細</th>' +
+          '</tr>' +
+        '</thead>' +
+        '<tbody>' + rowsHtml + '</tbody>' +
+      '</table>' +
+    '</div>';
 }
 
 async function openLogin(system) {
