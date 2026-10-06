@@ -7,14 +7,45 @@
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-<main class="wrap">
+<section id="authScreen" class="auth-screen">
+  <div class="auth-card">
+    <div class="auth-brand">服務衝突檢查系統</div>
+    <h1 id="authTitle">帳號登入</h1>
+    <p id="authSubtitle" class="muted">請輸入帳號及密碼</p>
+
+    <label class="auth-label">
+      帳號
+      <input id="authUsername" type="text" autocomplete="username" placeholder="請輸入帳號">
+    </label>
+
+    <label class="auth-label">
+      密碼
+      <input id="authPassword" type="password" autocomplete="current-password" placeholder="請輸入密碼">
+    </label>
+
+    <div id="authPasswordConfirmWrap" class="hidden">
+      <label class="auth-label">
+        再次輸入密碼
+        <input id="authPasswordConfirm" type="password" autocomplete="new-password" placeholder="請再次輸入密碼">
+      </label>
+    </div>
+
+    <button id="btnAuthSubmit" class="primary auth-submit">登入</button>
+    <div id="authMessage" class="auth-message"></div>
+  </div>
+</section>
+
+<main id="appShell" class="wrap hidden">
   <section class="hero">
     <div>
       <div class="eyebrow">LOCAL CONNECTOR MODE</div>
       <h1>服務衝突檢查系統</h1>
-      <p>GitHub Pages 只負責介面；仁寶與照管資料由使用者電腦上的 Connector 讀取。</p>
     </div>
-    <div id="connectorBadge" class="badge bad">Connector 未連線</div>
+    <div class="hero-actions">
+      <button id="btnAdmin" class="ghost hidden">管理者後台</button>
+      <button id="btnLogout" class="ghost">登出</button>
+      <div id="connectorBadge" class="badge bad">Connector 未連線</div>
+    </div>
   </section>
 
   <section id="installPanel" class="install-card hidden">
@@ -69,7 +100,6 @@
         <input id="dateInput" type="date">
       </label>
       <button id="btnAnalyze" class="primary">開始抓取並分析</button>
-      <p class="hint">Connector 會在本機取得必要資料，帳密、Cookie、Token 不會傳到 GitHub Pages。</p>
     </article>
   </section>
 
