@@ -696,9 +696,37 @@ def show_window():
 
     root.mainloop()
 
+def running_connector_version():
+    try:
+        data = requests.get(
+            f"http://127.0.0.1:{PORT}/health",
+            timeout=1.5,
+        ).json()
+        return str(data.get("version") or "未知")
+    except Exception:
+        return "未知"
+
+
 def main():
     if already_running():
-        messagebox.showinfo("服務衝突連線器", "Connector 已經在執行中。")
+        running_version = running_connector_version()
+
+        if running_version != VERSION:
+            messagebox.showwarning(
+                "偵測到舊版 Connector",
+                (
+                    f"目前電腦上已有 Connector v{running_version} 正在執行。\n\n"
+                    f"你剛開啟的是 v{VERSION}，但 127.0.0.1:{PORT} "
+                    "仍被舊版占用，因此網頁實際連到的仍是舊版。\n\n"
+                    "請先關閉舊的「服務衝突連線器」視窗，"
+                    "再重新開啟最新版。"
+                ),
+            )
+        else:
+            messagebox.showinfo(
+                "服務衝突連線器",
+                f"Connector v{VERSION} 已經在執行中。",
+            )
         return
 
     t = threading.Thread(target=run_server, daemon=True)
