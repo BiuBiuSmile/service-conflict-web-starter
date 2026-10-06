@@ -199,17 +199,21 @@ async function submitAuth() {
   }
 
   $("btnAuthSubmit").disabled = true;
+  const originalButtonText = $("btnAuthSubmit").textContent;
+  $("btnAuthSubmit").textContent = setupMode ? "正在建立管理者…" : "登入中…";
+  $("authMessage").textContent = setupMode ? "正在建立管理者帳號，請稍候…" : "正在驗證帳號，請稍候…";
 
   try {
     const path = setupMode ? "/auth/setup" : "/auth/login";
     const data = await api(path, {
       method:"POST",
       body:JSON.stringify({username, password})
-    }, 5000);
+    }, 15000);
 
     authToken = data.token;
     currentUser = data.user;
     sessionStorage.setItem("serviceConflictToken", authToken);
+    $("authMessage").textContent = "";
     showApp();
     await ping(false);
     await refreshStatuses();
@@ -226,6 +230,7 @@ async function submitAuth() {
     }
   } finally {
     $("btnAuthSubmit").disabled = false;
+    $("btnAuthSubmit").textContent = setupMode ? "建立管理者帳號" : "登入";
   }
 }
 
