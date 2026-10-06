@@ -3,6 +3,9 @@ const $ = (id) => document.getElementById(id);
 
 let connectorOnline = false;
 let lastLogKey = "";
+let authToken = sessionStorage.getItem("serviceConflictToken") || "";
+let currentUser = null;
+let setupMode = false;
 
 function log(msg, key="") {
   const dedupeKey = key || msg;
@@ -39,13 +42,120 @@ async function api(path, options={}, timeoutMs=2500) {
     const res = await fetch(CONNECTOR + path, {
       ...options,
       signal: ctl.signal,
-      headers: {"Content-Type":"application/json", ...(options.headers||{})}
+      headers: {
+        "Content-Type":"application/json",
+        ...(authToken ? {"Authorization":"Bearer " + authToken} : {}),
+        ...(options.headers||{})
+      }
     });
     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
     return await res.json();
   } finally {
     clearTimeout(timer);
   }
+}
+
+
+function showAuthScreen(message="") {
+  $("authScreen").classList.remove("hidden");
+  $("appShell").classList.add("hidden");
+  $("authMessage").textContent = message;
+}
+
+function showApp() {
+  $("authScreen").classList.add("hidden");
+  $("appShell").classList.remove("hidden");
+  $("btnAdmin").classList.toggle("hidden", currentUser?.role !== "admin");
+}
+
+async function loadAuthMode() {
+  try {
+    const data = await api("/auth/status", {}, 2500);
+    setupMode = !data.configured;
+
+    $("authTitle").textContent = setupMode ? "首次設定管理者" : "帳號登入";
+    $("authSubtitle").textContent = setupMode
+      ? "請先建立第一個管理者帳號"
+      : "請輸入帳號及密碼";
+    $("btnAuthSubmit").textContent = setupMode ? "建立管理者帳號" : "登入";
+    $("authPasswordConfirmWrap").classList.toggle("hidden", !setupMode);
+
+    if (authToken) {
+      try {
+        currentUser = await api("/auth/me", {}, 2500);
+        showApp();
+        return true;
+      } catch (_) {
+        authToken = "";
+        sessionStorage.removeItem("serviceConflictToken");
+      }
+    }
+
+    showAuthScreen();
+    return false;
+  } catch (e) {
+    showAuthScreen("請先啟動服務衝突連線器");
+    return false;
+  }
+}
+
+async function submitAuth() {
+  const username = $("authUsername").value.trim();
+  const password = $("authPassword").value;
+  const confirm = $("authPasswordConfirm").value;
+
+  $("authMessage").textContent = "";
+
+  if (!username || !password) {
+    $("authMessage").textContent = "請輸入帳號及密碼";
+    return;
+  }
+
+  if (setupMode && password !== confirm) {
+    $("authMessage").textContent = "兩次輸入的密碼不一致";
+    return;
+  }
+
+  $("btnAuthSubmit").disabled = true;
+
+  try {
+    const path = setupMode ? "/auth/setup" : "/auth/login";
+    const data = await api(path, {
+      method:"POST",
+      body:JSON.stringify({username, password})
+    }, 5000);
+
+    authToken = data.token;
+    currentUser = data.user;
+    sessionStorage.setItem("serviceConflictToken", authToken);
+    showApp();
+    await ping(false);
+    await refreshStatuses();
+  } catch (e) {
+    let msg = e.message;
+    try {
+      const match = msg.match(/\{.*\}$/s);
+      if (match) msg = JSON.parse(match[0]).error || msg;
+    } catch (_) {}
+    $("authMessage").textContent = msg;
+  } finally {
+    $("btnAuthSubmit").disabled = false;
+  }
+}
+
+async function logout() {
+  try {
+    if (authToken) {
+      await api("/auth/logout", {method:"POST", body:"{}"}, 2500);
+    }
+  } catch (_) {}
+
+  authToken = "";
+  currentUser = null;
+  sessionStorage.removeItem("serviceConflictToken");
+  $("authPassword").value = "";
+  $("authPasswordConfirm").value = "";
+  await loadAuthMode();
 }
 
 async function ping(silent=false) {
@@ -292,8 +402,34 @@ $("btnDemo").onclick = async ()=>{
 
 $("dateInput").value = new Date().toISOString().slice(0,10);
 
-setConnectorState(false);
-ping(false);
+$("btnAuthSubmit").onclick = submitAuth;
+$("authPassword").addEventListener("keydown", e => {
+  if (e.key === "Enter") submitAuth();
+});
+$("authPasswordConfirm").addEventListener("keydown", e => {
+  if (e.key === "Enter") submitAuth();
+});
+$("btnLogout").onclick = logout;
+$("btnAdmin").onclick = ()=>{ window.location.href = "./admin.html"; };
 
-// 安裝後不需手動重整，網頁每 3 秒自動確認 Connector 是否已啟動。
-setInterval(async ()=>{ const ok = await ping(true); if (ok) await refreshStatuses(); }, 5000);
+setConnectorState(false);
+
+(async ()=>{
+  const online = await ping(true);
+  if (!online) {
+    showAuthScreen("請先啟動服務衝突連線器");
+    return;
+  }
+
+  const loggedIn = await loadAuthMode();
+  if (loggedIn) {
+    await ping(false);
+    await refreshStatuses();
+  }
+})();
+
+setInterval(async ()=>{
+  if (!authToken) return;
+  const ok = await ping(true);
+  if (ok) await refreshStatuses();
+}, 5000);
