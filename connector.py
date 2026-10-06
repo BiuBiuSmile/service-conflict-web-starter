@@ -1,18 +1,18 @@
 import os
-import sys
-import time
 import shutil
 import subprocess
 import threading
 import webbrowser
 from pathlib import Path
 from datetime import date
+import tkinter as tk
+from tkinter import messagebox
 
 import requests
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-VERSION = "0.3.0"
+VERSION = "0.3.2"
 PORT = 8765
 WEBSITE_URL = "https://biubiusmile.github.io/service-conflict-web-starter/"
 
@@ -48,7 +48,6 @@ SYSTEMS = {
 
 @app.after_request
 def add_private_network_headers(response):
-    # Chrome Private Network Access 預檢所需。
     if request.headers.get("Access-Control-Request-Private-Network") == "true":
         response.headers["Access-Control-Allow-Private-Network"] = "true"
     response.headers["Cache-Control"] = "no-store"
@@ -76,49 +75,6 @@ def find_chrome():
             return c
     found = shutil.which("chrome") or shutil.which("chrome.exe")
     return Path(found) if found else None
-
-def executable_path():
-    return Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve()
-
-def register_startup():
-    """加入目前使用者 Windows 開機啟動，不需要管理員權限。"""
-    if os.name != "nt":
-        return
-    try:
-        import winreg
-        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
-        value = f'"{executable_path()}" --background'
-        with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            key_path,
-            0,
-            winreg.KEY_SET_VALUE,
-        ) as key:
-            winreg.SetValueEx(
-                key,
-                "ServiceConflictConnector",
-                0,
-                winreg.REG_SZ,
-                value,
-            )
-    except Exception:
-        pass
-
-def unregister_startup():
-    if os.name != "nt":
-        return
-    try:
-        import winreg
-        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
-        with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            key_path,
-            0,
-            winreg.KEY_SET_VALUE,
-        ) as key:
-            winreg.DeleteValue(key, "ServiceConflictConnector")
-    except Exception:
-        pass
 
 def already_running():
     try:
@@ -172,33 +128,18 @@ def launch_login(system):
 def browser_status(system):
     cfg = SYSTEMS[system]
     if not cdp_available(system):
-        return {
-            "running": False,
-            "logged_in": False,
-            "message": "專用 Chrome 尚未啟動。",
-            "url": "",
-        }
+        return {"running": False, "logged_in": False, "message": "專用 Chrome 尚未啟動。", "url": ""}
 
     try:
         targets = cdp_json(system, "/json/list")
     except Exception as e:
-        return {
-            "running": True,
-            "logged_in": False,
-            "message": f"Chrome 已開啟，但暫時無法讀取分頁：{e}",
-            "url": "",
-        }
+        return {"running": True, "logged_in": False, "message": f"Chrome 已開啟，但暫時無法讀取分頁：{e}", "url": ""}
 
     pages = [x for x in targets if isinstance(x, dict) and x.get("type") == "page"]
     related = [x for x in pages if cfg["host"] in str(x.get("url") or "")]
 
     if not related:
-        return {
-            "running": True,
-            "logged_in": False,
-            "message": f"{cfg['name']} Chrome 已開啟，尚未找到官方頁面。",
-            "url": "",
-        }
+        return {"running": True, "logged_in": False, "message": f"{cfg['name']} Chrome 已開啟，尚未找到官方頁面。", "url": ""}
 
     url = str(related[0].get("url") or "")
     lower = url.lower()
@@ -212,11 +153,7 @@ def browser_status(system):
         )
     else:
         obvious_login_tokens = ("/login", "signin", "cloudflare", "challenge")
-        logged = (
-            cfg["host"] in lower
-            and "/lcms/" in lower
-            and not any(t in lower for t in obvious_login_tokens)
-        )
+        logged = cfg["host"] in lower and "/lcms/" in lower and not any(t in lower for t in obvious_login_tokens)
 
     return {
         "running": True,
@@ -233,7 +170,6 @@ def health():
 def connect(system):
     if system not in SYSTEMS:
         return jsonify(error="unknown system"), 404
-
     try:
         started = launch_login(system)
     except Exception as e:
@@ -242,11 +178,7 @@ def connect(system):
     return jsonify(
         ok=True,
         started=started,
-        message=(
-            "已開啟官方登入頁，請完成登入。"
-            if started
-            else "專用 Chrome 已經開啟，請在該視窗完成登入。"
-        ),
+        message="已開啟官方登入頁，請完成登入。" if started else "專用 Chrome 已經開啟，請在該視窗完成登入。",
     )
 
 @app.get("/status/<system>")
@@ -277,9 +209,6 @@ def demo():
 def services():
     payload = request.get_json(silent=True) or {}
     selected_date = payload.get("date") or str(date.today())
-
-    # v0.3 仍保留示範資料。
-    # 下一階段會把既有仁寶 CDP/API 與照管 QD120A 流程接到這裡。
     rows = [r for r in demo_rows() if r["date"] == selected_date]
     return jsonify(rows=rows)
 
@@ -292,74 +221,54 @@ def run_server():
         threaded=True,
     )
 
-def build_tray_icon():
-    try:
-        from PIL import Image, ImageDraw
-        img = Image.new("RGB", (64,64), "white")
-        d = ImageDraw.Draw(img)
-        d.rounded_rectangle((6,6,58,58), radius=12, fill=(37,99,235))
-        d.ellipse((19,19,45,45), fill="white")
-        d.rectangle((28,14,36,50), fill=(37,99,235))
-        return img
-    except Exception:
-        return None
+def show_window():
+    root = tk.Tk()
+    root.title("服務衝突連線器")
+    root.geometry("420x220")
+    root.resizable(False, False)
 
-def run_tray():
-    try:
-        import pystray
+    tk.Label(root, text="服務衝突連線器", font=("Microsoft JhengHei UI", 18, "bold")).pack(pady=(22, 8))
+    tk.Label(
+        root,
+        text=f"Connector 已啟動\nhttp://127.0.0.1:{PORT}",
+        font=("Microsoft JhengHei UI", 11),
+        justify="center",
+    ).pack(pady=8)
 
-        def open_site(icon, item):
-            webbrowser.open(WEBSITE_URL)
+    btn_frame = tk.Frame(root)
+    btn_frame.pack(pady=14)
 
-        def quit_app(icon, item):
-            unregister_startup()
-            icon.stop()
-            os._exit(0)
+    tk.Button(
+        btn_frame,
+        text="開啟服務衝突網站",
+        width=18,
+        command=lambda: webbrowser.open(WEBSITE_URL),
+    ).pack(side="left", padx=6)
 
-        menu = pystray.Menu(
-            pystray.MenuItem("開啟服務衝突系統", open_site, default=True),
-            pystray.MenuItem("停止並取消開機啟動", quit_app),
-        )
+    tk.Button(
+        btn_frame,
+        text="關閉連線器",
+        width=14,
+        command=root.destroy,
+    ).pack(side="left", padx=6)
 
-        icon_img = build_tray_icon()
-        if icon_img is None:
-            return False
+    tk.Label(
+        root,
+        text="此版本不會修改開機啟動設定，也不會常駐系統列。",
+        fg="#666666",
+        font=("Microsoft JhengHei UI", 9),
+    ).pack(pady=(8, 0))
 
-        icon = pystray.Icon(
-            "ServiceConflictConnector",
-            icon_img,
-            "服務衝突連線器",
-            menu,
-        )
-        icon.run()
-        return True
-    except Exception:
-        return False
+    root.mainloop()
 
 def main():
     if already_running():
-        webbrowser.open(WEBSITE_URL)
+        messagebox.showinfo("服務衝突連線器", "Connector 已經在執行中。")
         return
-
-    register_startup()
 
     t = threading.Thread(target=run_server, daemon=True)
     t.start()
-
-    # 等 localhost 起來
-    for _ in range(20):
-        if already_running():
-            break
-        time.sleep(0.15)
-
-    background = "--background" in sys.argv
-    if not background:
-        webbrowser.open(WEBSITE_URL)
-
-    # EXE 以系統列常駐；若 tray 無法建立，仍維持背景服務。
-    if not run_tray():
-        while True:
-            time.sleep(3600)
+    show_window()
 
 if __name__ == "__main__":
     main()
