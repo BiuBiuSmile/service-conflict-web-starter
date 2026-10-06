@@ -61,6 +61,43 @@ async function ping(silent=false) {
   }
 }
 
+
+async function refreshStatuses() {
+  if (!connectorOnline) return;
+  try {
+    const results = await Promise.all([
+      api('/status/compal', {}, 12000).catch(e => ({logged_in:false,message:e.message})),
+      api('/status/lcms', {}, 12000).catch(e => ({logged_in:false,message:e.message}))
+    ]);
+    const compal = results[0], lcms = results[1];
+    $('compalStatus').textContent = compal.logged_in ? '✓ 已登入' : '✕ 尚未登入';
+    $('lcmsStatus').textContent = lcms.logged_in ? '✓ 已登入' : '✕ 尚未登入';
+    $('compalStatus').title = compal.message || '';
+    $('lcmsStatus').title = lcms.message || '';
+  } catch (_) {}
+}
+
+function renderServerAnalysis(data) {
+  const rows = data.rows || [];
+  const issues = data.issues || [];
+  const stats = data.stats || {};
+  $('summary').textContent = '共讀取 ' + (stats.total_services ?? rows.length) + ' 筆服務，掃描 ' + (stats.cases_scanned ?? 0) + ' 位個案，發現 ' + (stats.total_issues ?? issues.length) + ' 筆異常。';
+  if (!issues.length) {
+    $('results').innerHTML = '<div class="conflict ok"><strong>未發現服務重疊、居服員撞班或規則異常。</strong></div>';
+    return;
+  }
+  const esc = (v) => String(v ?? '').replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
+  $('results').innerHTML = issues.map(x => {
+    if (x.type === 'case_overlap') {
+      return '<div class="conflict"><strong>' + esc(x.title) + '</strong>｜' + esc(x.client) + '｜' + esc(x.date) + '｜重疊 ' + esc(x.minutes) + ' 分鐘<br>A：' + esc(x.a.unit) + '／' + esc(x.a.worker) + '／' + esc(x.a.title) + '／' + esc(x.a.start) + '-' + esc(x.a.end) + '<br>B：' + esc(x.b.unit) + '／' + esc(x.b.worker) + '／' + esc(x.b.title) + '／' + esc(x.b.start) + '-' + esc(x.b.end) + '</div>';
+    }
+    if (x.type === 'staff_overlap') {
+      return '<div class="conflict"><strong>居服員撞班：' + esc(x.worker) + '</strong>｜' + esc(x.date) + '｜重疊 ' + esc(x.minutes) + ' 分鐘<br>A：' + esc(x.a.unit) + '／' + esc(x.a.client) + '／' + esc(x.a.title) + '／' + esc(x.a.start) + '-' + esc(x.a.end) + '<br>B：' + esc(x.b.unit) + '／' + esc(x.b.client) + '／' + esc(x.b.title) + '／' + esc(x.b.start) + '-' + esc(x.b.end) + '</div>';
+    }
+    return '<div class="conflict"><strong>' + esc(x.title) + '</strong>｜' + esc(x.client || '') + '｜' + esc(x.date || '') + '<br>' + esc(x.detail || '') + '</div>';
+  }).join('');
+}
+
 async function openLogin(system) {
   if (!(await ping(true))) return;
   const label = system === "compal" ? "仁寶" : "照管";
@@ -140,18 +177,17 @@ function render(rows) {
 
 async function analyze() {
   if (!(await ping(true))) return;
-  const date = $("dateInput").value;
+  const date = $('dateInput').value;
   try {
-    $("summary").textContent = "資料抓取中…";
-    const data = await api("/services", {
-      method:"POST",
-      body: JSON.stringify({date})
-    }, 30000);
-    log(`取得 ${data.rows.length} 筆標準化服務資料`);
-    render(data.rows);
+    $('summary').textContent = '正在查詢照管個案與 QD120A 服務紀錄…';
+    $('results').innerHTML = '';
+    const data = await api('/services', {method:'POST', body: JSON.stringify({date})}, 180000);
+    log('照管 QD120A：取得 ' + data.rows.length + ' 筆服務資料');
+    renderServerAnalysis(data);
   } catch(e) {
-    $("summary").textContent = "抓取失敗";
-    log(`分析失敗：${e.message}`);
+    $('summary').textContent = '抓取失敗';
+    $('results').innerHTML = '<div class="conflict"><strong>抓取失敗</strong><br>' + e.message + '</div>';
+    log('分析失敗：' + e.message);
   }
 }
 
@@ -160,7 +196,7 @@ $("btnCompal").onclick = ()=>checkLogin("compal");
 $("btnOpenLcms").onclick = ()=>openLogin("lcms");
 $("btnLcms").onclick = ()=>checkLogin("lcms");
 $("btnAnalyze").onclick = analyze;
-$("btnRetryConnector").onclick = ()=>ping(false);
+$("btnRetryConnector").onclick = ()=>ping(false).then(ok => { if (ok) refreshStatuses(); });
 $("btnDemo").onclick = async ()=>{
   if (!(await ping(true))) {
     const rows = [
@@ -182,4 +218,4 @@ setConnectorState(false);
 ping(false);
 
 // 安裝後不需手動重整，網頁每 3 秒自動確認 Connector 是否已啟動。
-setInterval(()=>ping(true), 3000);
+setInterval(async ()=>{ const ok = await ping(true); if (ok) await refreshStatuses(); }, 5000);
