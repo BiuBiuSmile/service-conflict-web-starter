@@ -4,15 +4,16 @@ import subprocess
 import threading
 import webbrowser
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime, timedelta
 import tkinter as tk
 from tkinter import messagebox
 
 import requests
+import websocket
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-VERSION = "0.3.2"
+VERSION = "0.4.0"
 PORT = 8765
 WEBSITE_URL = "https://biubiusmile.github.io/service-conflict-web-starter/"
 
@@ -132,35 +133,22 @@ def browser_status(system):
 
     try:
         targets = cdp_json(system, "/json/list")
+        pages = [x for x in targets if isinstance(x, dict) and x.get("type") == "page"]
+        related = [x for x in pages if cfg["host"] in str(x.get("url") or "")]
     except Exception as e:
-        return {"running": True, "logged_in": False, "message": f"Chrome 已開啟，但暫時無法讀取分頁：{e}", "url": ""}
-
-    pages = [x for x in targets if isinstance(x, dict) and x.get("type") == "page"]
-    related = [x for x in pages if cfg["host"] in str(x.get("url") or "")]
+        return {"running": True, "logged_in": False, "message": f"暫時無法讀取分頁：{e}", "url": ""}
 
     if not related:
-        return {"running": True, "logged_in": False, "message": f"{cfg['name']} Chrome 已開啟，尚未找到官方頁面。", "url": ""}
+        return {"running": True, "logged_in": False, "message": f"{cfg['name']} 官方頁面已關閉。", "url": ""}
 
     url = str(related[0].get("url") or "")
-    lower = url.lower()
+    if system == "lcms":
+        ok, message = probe_lcms()
+        return {"running": True, "logged_in": ok, "message": message, "url": url}
 
-    if system == "compal":
-        logged = (
-            cfg["host"] in lower
-            and "/login" not in lower
-            and "/signin" not in lower
-            and lower.rstrip("/") != "https://luna.compal-health.com"
-        )
-    else:
-        obvious_login_tokens = ("/login", "signin", "cloudflare", "challenge")
-        logged = cfg["host"] in lower and "/lcms/" in lower and not any(t in lower for t in obvious_login_tokens)
-
-    return {
-        "running": True,
-        "logged_in": logged,
-        "message": "已偵測到登入後頁面。" if logged else "等待使用者在官方頁面完成登入。",
-        "url": url,
-    }
+    lower=url.lower()
+    logged = cfg["host"] in lower and "/login" not in lower and "/signin" not in lower and lower.rstrip("/") != "https://luna.compal-health.com"
+    return {"running": True, "logged_in": logged, "message": "已偵測到登入後頁面。" if logged else "等待使用者在官方頁面完成登入。", "url": url}
 
 @app.get("/health")
 def health():
@@ -208,9 +196,36 @@ def demo():
 @app.post("/services")
 def services():
     payload = request.get_json(silent=True) or {}
-    selected_date = payload.get("date") or str(date.today())
-    rows = [r for r in demo_rows() if r["date"] == selected_date]
-    return jsonify(rows=rows)
+    raw_date = payload.get("date") or str(date.today())
+    try:
+        selected = datetime.strptime(raw_date, "%Y-%m-%d").date()
+    except Exception:
+        return jsonify(error="日期格式錯誤"), 400
+
+    ok, message = probe_lcms()
+    if not ok:
+        return jsonify(error=f"照管尚未登入或 Session 已失效：{message}"), 409
+
+    session = build_cdp_session("lcms")
+    cases = fetch_all_lcms_cases(session)
+    normalized = []
+    failures = []
+
+    for info in cases:
+        try:
+            for row in query_qd120_rows(session, info["id"], selected):
+                item = normalize_qd_row(info["id"], info["name"], row)
+                if item:
+                    normalized.append(item)
+        except Exception as e:
+            failures.append({"case":info["name"],"case_id":info["id"],"error":str(e)})
+
+    issues,stats=analyze_services(normalized)
+    stats["cases_scanned"]=len(cases)
+    stats["case_query_failures"]=len(failures)
+
+    public_rows=[{k:v for k,v in r.items() if not k.startswith("_")} for r in normalized]
+    return jsonify(rows=public_rows,issues=issues,stats=stats,query_failures=failures[:20],source="LCMS QD120A")
 
 def run_server():
     app.run(
