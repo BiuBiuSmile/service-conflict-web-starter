@@ -20,7 +20,7 @@ import websocket
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-VERSION = "0.5.3"
+VERSION = "0.5.4"
 PORT = 8765
 WEBSITE_URL = "https://biubiusmile.github.io/service-conflict-web-starter/"
 
@@ -172,11 +172,20 @@ def require_admin(fn):
 
 @app.get("/auth/status")
 def auth_status():
-    users = load_users()
-    return jsonify(
-        configured=bool(users),
-        logged_in=bool(get_auth_context()),
-    )
+    try:
+        users = load_users()
+        return jsonify(
+            configured=bool(users),
+            logged_in=bool(get_auth_context()),
+            version=VERSION,
+        )
+    except Exception as e:
+        return jsonify(
+            configured=False,
+            logged_in=False,
+            version=VERSION,
+            error=f"{type(e).__name__}: {e}",
+        ), 200
 
 
 @app.post("/auth/setup")
@@ -976,7 +985,14 @@ def analyze_services(rows):
 
 @app.get("/health")
 def health():
-    return jsonify(ok=True, version=VERSION, auth=True, admin=True)
+    users = load_users()
+    return jsonify(
+        ok=True,
+        version=VERSION,
+        auth=True,
+        admin=True,
+        configured=bool(users),
+    )
 
 @app.post("/connect/<system>")
 @require_auth
