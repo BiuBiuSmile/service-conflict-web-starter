@@ -94,7 +94,15 @@ async function loadAuthMode() {
     showAuthScreen();
     return false;
   } catch (e) {
-    showAuthScreen("請先啟動服務衝突連線器");
+    let message = e.message || "連線器無回應";
+    if (message.includes("404")) {
+      message = "目前執行中的 Connector 版本過舊，請關閉舊版並開啟最新版。";
+    } else if (message.includes("Failed to fetch") || message.includes("AbortError")) {
+      message = "無法連線 Connector，請確認連線器仍在執行。";
+    } else {
+      message = "Connector 驗證功能異常：" + message;
+    }
+    showAuthScreen(message);
     return false;
   }
 }
@@ -417,7 +425,18 @@ setConnectorState(false);
 (async ()=>{
   const online = await ping(true);
   if (!online) {
-    showAuthScreen("請先啟動服務衝突連線器");
+    showAuthScreen("無法連線 Connector，請確認連線器仍在執行。");
+    return;
+  }
+
+  try {
+    const health = await api("/health", {}, 2500);
+    if (!health.auth) {
+      showAuthScreen("目前執行中的 Connector 版本過舊，請關閉舊版並開啟最新版。");
+      return;
+    }
+  } catch (e) {
+    showAuthScreen("無法確認 Connector 版本：" + (e.message || e));
     return;
   }
 
