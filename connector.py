@@ -20,7 +20,7 @@ import websocket
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-VERSION = "0.5.1"
+VERSION = "0.5.2"
 PORT = 8765
 WEBSITE_URL = "https://biubiusmile.github.io/service-conflict-web-starter/"
 
@@ -192,8 +192,34 @@ def auth_setup():
 
     with AUTH_LOCK:
         users = load_users()
+
         if users:
-            return jsonify(error="系統已完成管理者設定"), 409
+            # 如果首次設定其實已在前一瞬間成功（例如重複點擊、
+            # 頁面重送），且輸入的是同一組管理者帳密，
+            # 直接視為登入成功，不再回 409。
+            existing = users.get(username)
+            if (
+                existing
+                and existing.get("role") == "admin"
+                and existing.get("enabled", True)
+                and verify_password(
+                    password,
+                    existing.get("salt", ""),
+                    existing.get("password_hash", ""),
+                )
+            ):
+                token = issue_token(username, "admin")
+                return jsonify(
+                    ok=True,
+                    token=token,
+                    user={"username": username, "role": "admin"},
+                    already_configured=True,
+                )
+
+            return jsonify(
+                error="管理者帳號已建立，請改用登入。",
+                code="ALREADY_CONFIGURED",
+            ), 409
 
         salt, password_hash = hash_password(password)
         users[username] = {
