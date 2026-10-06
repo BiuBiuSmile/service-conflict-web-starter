@@ -8,30 +8,57 @@
 </head>
 <body>
 <section id="authScreen" class="auth-screen">
-  <div class="auth-card">
+  <div class="auth-card auth-card-wide">
     <div class="auth-brand">服務衝突檢查系統</div>
-    <h1 id="authTitle">帳號登入</h1>
-    <p id="authSubtitle" class="muted">請輸入帳號及密碼</p>
 
-    <label class="auth-label">
-      帳號
-      <input id="authUsername" type="text" autocomplete="username" placeholder="請輸入帳號">
-    </label>
+    <div id="connectorStep">
+      <div class="auth-status-row">
+        <div>
+          <h1 id="connectorStepTitle">正在檢查連線器</h1>
+          <p id="connectorStepText" class="muted">請稍候…</p>
+        </div>
+        <div id="authConnectorBadge" class="badge wait">檢查中</div>
+      </div>
 
-    <label class="auth-label">
-      密碼
-      <input id="authPassword" type="password" autocomplete="current-password" placeholder="請輸入密碼">
-    </label>
-
-    <div id="authPasswordConfirmWrap" class="hidden">
-      <label class="auth-label">
-        再次輸入密碼
-        <input id="authPasswordConfirm" type="password" autocomplete="new-password" placeholder="請再次輸入密碼">
-      </label>
+      <div id="connectorDownloadBox" class="connector-download-box hidden">
+        <p>第一次使用請先下載並開啟 Windows 連線器。</p>
+        <div class="install-actions">
+          <a class="download-btn"
+             href="https://github.com/BiuBiuSmile/service-conflict-web-starter/releases/latest/download/ServiceConflictConnector.exe">
+            下載 Windows 連線器
+          </a>
+          <button id="btnAuthRetryConnector">重新檢查</button>
+        </div>
+        <div class="install-help">
+          下載後開啟連線器即可，本頁會自動繼續。
+        </div>
+      </div>
     </div>
 
-    <button id="btnAuthSubmit" class="primary auth-submit">登入</button>
-    <div id="authMessage" class="auth-message"></div>
+    <div id="authFormWrap" class="hidden">
+      <h1 id="authTitle">帳號登入</h1>
+      <p id="authSubtitle" class="muted">請輸入帳號及密碼</p>
+
+      <label class="auth-label">
+        帳號
+        <input id="authUsername" type="text" autocomplete="username" placeholder="請輸入帳號">
+      </label>
+
+      <label class="auth-label">
+        密碼
+        <input id="authPassword" type="password" autocomplete="current-password" placeholder="請輸入密碼">
+      </label>
+
+      <div id="authPasswordConfirmWrap" class="hidden">
+        <label class="auth-label">
+          再次輸入密碼
+          <input id="authPasswordConfirm" type="password" autocomplete="new-password" placeholder="請再次輸入密碼">
+        </label>
+      </div>
+
+      <button id="btnAuthSubmit" class="primary auth-submit">登入</button>
+      <div id="authMessage" class="auth-message"></div>
+    </div>
   </div>
 </section>
 
