@@ -75,8 +75,8 @@ function showAuthScreen(message="") {
 
 function showConnectorStep(state, version="") {
   showAuthScreen();
-  $("connectorStep").classList.remove("hidden");
-  $("authFormWrap").classList.add("hidden");
+  $("connectorPage").classList.remove("hidden");
+  $("loginPage").classList.add("hidden");
 
   const badge = $("authConnectorBadge");
   const downloadBox = $("connectorDownloadBox");
@@ -109,9 +109,9 @@ function showConnectorStep(state, version="") {
 }
 
 function showLoginForm() {
-  $("connectorStep").classList.add("hidden");
-  $("authFormWrap").classList.remove("hidden");
   showAuthScreen();
+  $("connectorPage").classList.add("hidden");
+  $("loginPage").classList.remove("hidden");
 }
 
 function showApp() {
@@ -537,7 +537,7 @@ bootstrapAuthFlow().then(async loggedIn => {
 
 setInterval(async ()=>{
   if (!$("authScreen").classList.contains("hidden")) {
-    if (!connectorOnline || !$("authFormWrap").classList.contains("hidden")) return;
+    if (!connectorOnline || !$("loginPage").classList.contains("hidden")) return;
 
     try {
       const health = await api("/health", {}, 1800);
