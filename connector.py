@@ -1,4 +1,8 @@
 import json
+import hashlib
+import hmac
+import secrets
+import time
 import os
 import re
 import shutil
@@ -6,6 +10,7 @@ import subprocess
 import threading
 import webbrowser
 from pathlib import Path
+from functools import wraps
 from datetime import date, datetime, timedelta
 import tkinter as tk
 from tkinter import messagebox
@@ -15,7 +20,7 @@ import websocket
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-VERSION = "0.4.4"
+VERSION = "0.5.0"
 PORT = 8765
 WEBSITE_URL = "https://biubiusmile.github.io/service-conflict-web-starter/"
 
@@ -48,6 +53,316 @@ SYSTEMS = {
         "port": 9460,
     },
 }
+
+
+AUTH_ITERATIONS = 210000
+AUTH_TOKEN_TTL = 12 * 60 * 60
+AUTH_LOCK = threading.Lock()
+AUTH_SESSIONS = {}
+
+
+def auth_file():
+    return base_dir() / "users.json"
+
+
+def load_users():
+    path = auth_file()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_users(users):
+    path = auth_file()
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(
+        json.dumps(users, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    tmp.replace(path)
+
+
+def hash_password(password, salt_hex=None):
+    if salt_hex:
+        salt = bytes.fromhex(salt_hex)
+    else:
+        salt = secrets.token_bytes(16)
+
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt,
+        AUTH_ITERATIONS,
+    )
+    return salt.hex(), digest.hex()
+
+
+def verify_password(password, salt_hex, hash_hex):
+    try:
+        _, candidate = hash_password(password, salt_hex)
+        return hmac.compare_digest(candidate, hash_hex)
+    except Exception:
+        return False
+
+
+def issue_token(username, role):
+    token = secrets.token_urlsafe(32)
+    AUTH_SESSIONS[token] = {
+        "username": username,
+        "role": role,
+        "expires": time.time() + AUTH_TOKEN_TTL,
+    }
+    return token
+
+
+def get_auth_context():
+    header = request.headers.get("Authorization", "")
+    if not header.startswith("Bearer "):
+        return None
+
+    token = header[7:].strip()
+    session = AUTH_SESSIONS.get(token)
+    if not session:
+        return None
+
+    if session.get("expires", 0) < time.time():
+        AUTH_SESSIONS.pop(token, None)
+        return None
+
+    users = load_users()
+    user = users.get(session.get("username"))
+    if not user or not user.get("enabled", True):
+        AUTH_SESSIONS.pop(token, None)
+        return None
+
+    return {
+        "token": token,
+        "username": session["username"],
+        "role": user.get("role", "user"),
+    }
+
+
+def require_auth(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        ctx = get_auth_context()
+        if not ctx:
+            return jsonify(error="尚未登入或登入已逾時"), 401
+        request.auth = ctx
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def require_admin(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        ctx = get_auth_context()
+        if not ctx:
+            return jsonify(error="尚未登入或登入已逾時"), 401
+        if ctx.get("role") != "admin":
+            return jsonify(error="需要管理者權限"), 403
+        request.auth = ctx
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+@app.get("/auth/status")
+def auth_status():
+    users = load_users()
+    return jsonify(
+        configured=bool(users),
+        logged_in=bool(get_auth_context()),
+    )
+
+
+@app.post("/auth/setup")
+def auth_setup():
+    payload = request.get_json(silent=True) or {}
+    username = str(payload.get("username") or "").strip()
+    password = str(payload.get("password") or "")
+
+    if len(username) < 3:
+        return jsonify(error="管理者帳號至少 3 個字元"), 400
+    if len(password) < 8:
+        return jsonify(error="密碼至少需要 8 個字元"), 400
+
+    with AUTH_LOCK:
+        users = load_users()
+        if users:
+            return jsonify(error="系統已完成管理者設定"), 409
+
+        salt, password_hash = hash_password(password)
+        users[username] = {
+            "role": "admin",
+            "enabled": True,
+            "salt": salt,
+            "password_hash": password_hash,
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        save_users(users)
+
+    token = issue_token(username, "admin")
+    return jsonify(
+        ok=True,
+        token=token,
+        user={"username": username, "role": "admin"},
+    )
+
+
+@app.post("/auth/login")
+def auth_login():
+    payload = request.get_json(silent=True) or {}
+    username = str(payload.get("username") or "").strip()
+    password = str(payload.get("password") or "")
+
+    users = load_users()
+    user = users.get(username)
+
+    if (
+        not user
+        or not user.get("enabled", True)
+        or not verify_password(
+            password,
+            user.get("salt", ""),
+            user.get("password_hash", ""),
+        )
+    ):
+        return jsonify(error="帳號或密碼錯誤"), 401
+
+    role = user.get("role", "user")
+    token = issue_token(username, role)
+
+    return jsonify(
+        ok=True,
+        token=token,
+        user={"username": username, "role": role},
+    )
+
+
+@app.post("/auth/logout")
+@require_auth
+def auth_logout():
+    token = request.auth.get("token")
+    AUTH_SESSIONS.pop(token, None)
+    return jsonify(ok=True)
+
+
+@app.get("/auth/me")
+@require_auth
+def auth_me():
+    return jsonify(
+        username=request.auth["username"],
+        role=request.auth["role"],
+    )
+
+
+@app.get("/admin/users")
+@require_admin
+def admin_users():
+    users = load_users()
+    rows = []
+    for username, user in sorted(users.items()):
+        rows.append({
+            "username": username,
+            "role": user.get("role", "user"),
+            "enabled": bool(user.get("enabled", True)),
+            "created_at": user.get("created_at", ""),
+        })
+    return jsonify(users=rows)
+
+
+@app.post("/admin/users")
+@require_admin
+def admin_create_user():
+    payload = request.get_json(silent=True) or {}
+    username = str(payload.get("username") or "").strip()
+    password = str(payload.get("password") or "")
+    role = str(payload.get("role") or "user").strip()
+
+    if len(username) < 3:
+        return jsonify(error="帳號至少 3 個字元"), 400
+    if len(password) < 8:
+        return jsonify(error="密碼至少需要 8 個字元"), 400
+    if role not in ("user", "admin"):
+        return jsonify(error="無效的角色"), 400
+
+    with AUTH_LOCK:
+        users = load_users()
+        if username in users:
+            return jsonify(error="帳號已存在"), 409
+
+        salt, password_hash = hash_password(password)
+        users[username] = {
+            "role": role,
+            "enabled": True,
+            "salt": salt,
+            "password_hash": password_hash,
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        save_users(users)
+
+    return jsonify(ok=True)
+
+
+@app.patch("/admin/users/<username>")
+@require_admin
+def admin_update_user(username):
+    payload = request.get_json(silent=True) or {}
+
+    with AUTH_LOCK:
+        users = load_users()
+        user = users.get(username)
+        if not user:
+            return jsonify(error="找不到帳號"), 404
+
+        if "enabled" in payload:
+            enabled = bool(payload.get("enabled"))
+            if username == request.auth["username"] and not enabled:
+                return jsonify(error="不能停用目前登入中的管理者帳號"), 400
+            user["enabled"] = enabled
+
+        if "role" in payload:
+            role = str(payload.get("role") or "")
+            if role not in ("user", "admin"):
+                return jsonify(error="無效的角色"), 400
+            if username == request.auth["username"] and role != "admin":
+                return jsonify(error="不能移除自己的管理者權限"), 400
+            user["role"] = role
+
+        password = str(payload.get("password") or "")
+        if password:
+            if len(password) < 8:
+                return jsonify(error="密碼至少需要 8 個字元"), 400
+            salt, password_hash = hash_password(password)
+            user["salt"] = salt
+            user["password_hash"] = password_hash
+
+        users[username] = user
+        save_users(users)
+
+    return jsonify(ok=True)
+
+
+@app.delete("/admin/users/<username>")
+@require_admin
+def admin_delete_user(username):
+    if username == request.auth["username"]:
+        return jsonify(error="不能刪除目前登入中的管理者帳號"), 400
+
+    with AUTH_LOCK:
+        users = load_users()
+        if username not in users:
+            return jsonify(error="找不到帳號"), 404
+        users.pop(username, None)
+        save_users(users)
+
+    return jsonify(ok=True)
+
+
 
 @app.after_request
 def add_private_network_headers(response):
@@ -624,6 +939,7 @@ def health():
     return jsonify(ok=True, version=VERSION)
 
 @app.post("/connect/<system>")
+@require_auth
 def connect(system):
     if system not in SYSTEMS:
         return jsonify(error="unknown system"), 404
@@ -639,6 +955,7 @@ def connect(system):
     )
 
 @app.get("/status/<system>")
+@require_auth
 def status(system):
     if system not in SYSTEMS:
         return jsonify(error="unknown system"), 404
@@ -670,10 +987,12 @@ def demo_rows():
     ]
 
 @app.get("/demo")
+@require_auth
 def demo():
     return jsonify(rows=demo_rows())
 
 @app.post("/services")
+@require_auth
 def services():
     payload = request.get_json(silent=True) or {}
     raw_date = payload.get("date") or str(date.today())
