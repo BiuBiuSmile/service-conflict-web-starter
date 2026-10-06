@@ -15,7 +15,7 @@ import websocket
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-VERSION = "0.4.2"
+VERSION = "0.4.3"
 PORT = 8765
 WEBSITE_URL = "https://biubiusmile.github.io/service-conflict-web-starter/"
 
@@ -388,7 +388,7 @@ def fetch_all_lcms_cases(session):
 
     while True:
         url = re.sub(r"offset=\d+", f"offset={offset}", LCMS_CASE_URL)
-        data = safe_json_get(session, url, "CA_FILTER", timeout=30)
+        data = browser_fetch_json("lcms", url, timeout=30)
         if not isinstance(data, dict):
             raise RuntimeError("CA_FILTER 回傳格式不是物件。")
 
@@ -444,7 +444,7 @@ def query_qd120_rows(session, case_id, selected_date):
 
     while True:
         url = re.sub(r"offset=\d+", f"offset={offset}", url0)
-        data = safe_json_get(session, url, "QD120A", timeout=30)
+        data = browser_fetch_json("lcms", url, timeout=30)
         if not isinstance(data, dict):
             raise RuntimeError("QD120A 回傳格式不是物件。")
 
@@ -675,35 +675,96 @@ def demo():
 def services():
     payload = request.get_json(silent=True) or {}
     raw_date = payload.get("date") or str(date.today())
+
     try:
         selected = datetime.strptime(raw_date, "%Y-%m-%d").date()
     except Exception:
-        return jsonify(error="日期格式錯誤"), 400
+        return jsonify(
+            error="日期格式錯誤",
+            stage="date",
+        ), 400
 
-    ok, message = probe_lcms()
-    if not ok:
-        return jsonify(error=f"照管尚未登入或 Session 已失效：{message}"), 409
+    try:
+        ok, message = probe_lcms()
+        if not ok:
+            return jsonify(
+                error=f"照管尚未登入或 Session 已失效：{message}",
+                stage="login",
+            ), 409
 
-    session = build_cdp_session("lcms")
-    cases = fetch_all_lcms_cases(session)
-    normalized = []
-    failures = []
+        # Session 只保留給相容介面；實際 LCMS 查詢改由 Chrome 同源 fetch 執行。
+        session = build_cdp_session("lcms")
 
-    for info in cases:
         try:
-            for row in query_qd120_rows(session, info["id"], selected):
-                item = normalize_qd_row(info["id"], info["name"], row)
-                if item:
-                    normalized.append(item)
+            cases = fetch_all_lcms_cases(session)
         except Exception as e:
-            failures.append({"case":info["name"],"case_id":info["id"],"error":str(e)})
+            return jsonify(
+                error=f"取得照管個案清單失敗：{type(e).__name__}: {e}",
+                stage="case_list",
+            ), 502
 
-    issues,stats=analyze_services(normalized)
-    stats["cases_scanned"]=len(cases)
-    stats["case_query_failures"]=len(failures)
+        normalized = []
+        failures = []
 
-    public_rows=[{k:v for k,v in r.items() if not k.startswith("_")} for r in normalized]
-    return jsonify(rows=public_rows,issues=issues,stats=stats,query_failures=failures[:20],source="LCMS QD120A")
+        for info in cases:
+            try:
+                qd_rows = query_qd120_rows(
+                    session,
+                    info["id"],
+                    selected,
+                )
+
+                for row in qd_rows:
+                    item = normalize_qd_row(
+                        info["id"],
+                        info["name"],
+                        row,
+                    )
+                    if item:
+                        normalized.append(item)
+
+            except Exception as e:
+                failures.append({
+                    "case": info.get("name", ""),
+                    "case_id": info.get("id", ""),
+                    "error": f"{type(e).__name__}: {e}",
+                })
+
+        try:
+            issues, stats = analyze_services(normalized)
+        except Exception as e:
+            return jsonify(
+                error=f"衝突分析失敗：{type(e).__name__}: {e}",
+                stage="analysis",
+                rows_read=len(normalized),
+            ), 500
+
+        stats["cases_scanned"] = len(cases)
+        stats["case_query_failures"] = len(failures)
+
+        public_rows = [
+            {
+                k: v
+                for k, v in row.items()
+                if not k.startswith("_")
+            }
+            for row in normalized
+        ]
+
+        return jsonify(
+            rows=public_rows,
+            issues=issues,
+            stats=stats,
+            query_failures=failures[:20],
+            source="LCMS QD120A via Chrome",
+        )
+
+    except Exception as e:
+        # 最外層保護：永遠回傳 JSON 錯誤，不再讓前端看到 Flask HTML 500。
+        return jsonify(
+            error=f"Connector 執行失敗：{type(e).__name__}: {e}",
+            stage="unexpected",
+        ), 500
 
 def run_server():
     app.run(
