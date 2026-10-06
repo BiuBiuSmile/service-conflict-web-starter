@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 a = Analysis(
-    ['connector/connector.py'],
+    ['connector.py'],
     pathex=[],
     binaries=[],
     datas=[],
