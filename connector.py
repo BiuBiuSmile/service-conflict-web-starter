@@ -1,18 +1,35 @@
-from flask import Flask, jsonify, request
-from flask_cors import CORS
-from datetime import date
-from pathlib import Path
-import json
 import os
+import sys
+import time
 import shutil
 import subprocess
-import time
+import threading
+import webbrowser
+from pathlib import Path
+from datetime import date
+
 import requests
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+
+VERSION = "0.3.0"
+PORT = 8765
+WEBSITE_URL = "https://biubiusmile.github.io/service-conflict-web/"
 
 app = Flask(__name__)
-CORS(app)
 
-VERSION = "0.2.0"
+ALLOWED_ORIGINS = [
+    "https://biubiusmile.github.io",
+    "https://chkia.dev",
+    "http://localhost",
+    "http://127.0.0.1",
+]
+
+CORS(
+    app,
+    resources={r"/*": {"origins": ALLOWED_ORIGINS}},
+    supports_credentials=False,
+)
 
 SYSTEMS = {
     "compal": {
@@ -29,14 +46,22 @@ SYSTEMS = {
     },
 }
 
-def app_dir():
+@app.after_request
+def add_private_network_headers(response):
+    # Chrome Private Network Access 預檢所需。
+    if request.headers.get("Access-Control-Request-Private-Network") == "true":
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+def base_dir():
     base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
     p = base / "ServiceConflictConnector"
     p.mkdir(parents=True, exist_ok=True)
     return p
 
 def profile_dir(system):
-    p = app_dir() / "ChromeProfiles" / system
+    p = base_dir() / "ChromeProfiles" / system
     p.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -51,6 +76,56 @@ def find_chrome():
             return c
     found = shutil.which("chrome") or shutil.which("chrome.exe")
     return Path(found) if found else None
+
+def executable_path():
+    return Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve()
+
+def register_startup():
+    """加入目前使用者 Windows 開機啟動，不需要管理員權限。"""
+    if os.name != "nt":
+        return
+    try:
+        import winreg
+        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        value = f'"{executable_path()}" --background'
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            key_path,
+            0,
+            winreg.KEY_SET_VALUE,
+        ) as key:
+            winreg.SetValueEx(
+                key,
+                "ServiceConflictConnector",
+                0,
+                winreg.REG_SZ,
+                value,
+            )
+    except Exception:
+        pass
+
+def unregister_startup():
+    if os.name != "nt":
+        return
+    try:
+        import winreg
+        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            key_path,
+            0,
+            winreg.KEY_SET_VALUE,
+        ) as key:
+            winreg.DeleteValue(key, "ServiceConflictConnector")
+    except Exception:
+        pass
+
+def already_running():
+    try:
+        r = requests.get(f"http://127.0.0.1:{PORT}/health", timeout=0.7)
+        return r.ok
+    except Exception:
+        return False
 
 def cdp_json(system, path="/json/list"):
     cfg = SYSTEMS[system]
@@ -69,10 +144,9 @@ def launch_login(system):
     cfg = SYSTEMS[system]
     chrome = find_chrome()
     if chrome is None:
-        raise RuntimeError("找不到 Google Chrome。")
+        raise RuntimeError("找不到 Google Chrome，請先安裝 Chrome。")
 
     if cdp_available(system):
-        # 已有專用 Chrome 開著，不再啟動第二份。
         return False
 
     cmd = [
@@ -87,7 +161,12 @@ def launch_login(system):
         "--start-maximized",
         cfg["url"],
     ]
-    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
+    )
     return True
 
 def browser_status(system):
@@ -99,6 +178,7 @@ def browser_status(system):
             "message": "專用 Chrome 尚未啟動。",
             "url": "",
         }
+
     try:
         targets = cdp_json(system, "/json/list")
     except Exception as e:
@@ -111,6 +191,7 @@ def browser_status(system):
 
     pages = [x for x in targets if isinstance(x, dict) and x.get("type") == "page"]
     related = [x for x in pages if cfg["host"] in str(x.get("url") or "")]
+
     if not related:
         return {
             "running": True,
@@ -119,8 +200,6 @@ def browser_status(system):
             "url": "",
         }
 
-    # 仁寶：離開 /login /signin 後先視為可能登入完成。
-    # 照管：第一版以進入 /lcms/ 內頁作初步判定；下一版再接實際 Session/API 驗證。
     url = str(related[0].get("url") or "")
     lower = url.lower()
 
@@ -133,7 +212,11 @@ def browser_status(system):
         )
     else:
         obvious_login_tokens = ("/login", "signin", "cloudflare", "challenge")
-        logged = cfg["host"] in lower and "/lcms/" in lower and not any(t in lower for t in obvious_login_tokens)
+        logged = (
+            cfg["host"] in lower
+            and "/lcms/" in lower
+            and not any(t in lower for t in obvious_login_tokens)
+        )
 
     return {
         "running": True,
@@ -150,11 +233,20 @@ def health():
 def connect(system):
     if system not in SYSTEMS:
         return jsonify(error="unknown system"), 404
-    started = launch_login(system)
+
+    try:
+        started = launch_login(system)
+    except Exception as e:
+        return jsonify(error=str(e)), 500
+
     return jsonify(
         ok=True,
         started=started,
-        message=("已開啟官方登入頁，請完成登入。" if started else "專用 Chrome 已經開啟，請在該視窗完成登入。")
+        message=(
+            "已開啟官方登入頁，請完成登入。"
+            if started
+            else "專用 Chrome 已經開啟，請在該視窗完成登入。"
+        ),
     )
 
 @app.get("/status/<system>")
@@ -186,23 +278,88 @@ def services():
     payload = request.get_json(silent=True) or {}
     selected_date = payload.get("date") or str(date.today())
 
-    # 下一版會在這裡接回既有實際流程：
-    # 仁寶：
-    #   1. CDP Storage.getCookies
-    #   2. 擷取 x-company-id / x-employee-id
-    #   3. POST /employee/list 驗證
-    #   4. POST /shiftInfo/employee 或 /shift/profile/total 取班表
-    #
-    # 照管：
-    #   1. 從已登入 Chrome 建立 requests.Session
-    #   2. 依個案查詢 QD120A
-    #   3. 套用既有衝突規則
-    #
-    # Session/Cookie/Token 僅留在 localhost Connector，不回傳 GitHub Pages。
+    # v0.3 仍保留示範資料。
+    # 下一階段會把既有仁寶 CDP/API 與照管 QD120A 流程接到這裡。
     rows = [r for r in demo_rows() if r["date"] == selected_date]
     return jsonify(rows=rows)
 
+def run_server():
+    app.run(
+        host="127.0.0.1",
+        port=PORT,
+        debug=False,
+        use_reloader=False,
+        threaded=True,
+    )
+
+def build_tray_icon():
+    try:
+        from PIL import Image, ImageDraw
+        img = Image.new("RGB", (64,64), "white")
+        d = ImageDraw.Draw(img)
+        d.rounded_rectangle((6,6,58,58), radius=12, fill=(37,99,235))
+        d.ellipse((19,19,45,45), fill="white")
+        d.rectangle((28,14,36,50), fill=(37,99,235))
+        return img
+    except Exception:
+        return None
+
+def run_tray():
+    try:
+        import pystray
+
+        def open_site(icon, item):
+            webbrowser.open(WEBSITE_URL)
+
+        def quit_app(icon, item):
+            unregister_startup()
+            icon.stop()
+            os._exit(0)
+
+        menu = pystray.Menu(
+            pystray.MenuItem("開啟服務衝突系統", open_site, default=True),
+            pystray.MenuItem("停止並取消開機啟動", quit_app),
+        )
+
+        icon_img = build_tray_icon()
+        if icon_img is None:
+            return False
+
+        icon = pystray.Icon(
+            "ServiceConflictConnector",
+            icon_img,
+            "服務衝突連線器",
+            menu,
+        )
+        icon.run()
+        return True
+    except Exception:
+        return False
+
+def main():
+    if already_running():
+        webbrowser.open(WEBSITE_URL)
+        return
+
+    register_startup()
+
+    t = threading.Thread(target=run_server, daemon=True)
+    t.start()
+
+    # 等 localhost 起來
+    for _ in range(20):
+        if already_running():
+            break
+        time.sleep(0.15)
+
+    background = "--background" in sys.argv
+    if not background:
+        webbrowser.open(WEBSITE_URL)
+
+    # EXE 以系統列常駐；若 tray 無法建立，仍維持背景服務。
+    if not run_tray():
+        while True:
+            time.sleep(3600)
+
 if __name__ == "__main__":
-    print("Service Conflict Connector v" + VERSION)
-    print("Listening on http://127.0.0.1:8765")
-    app.run(host="127.0.0.1", port=8765, debug=False)
+    main()

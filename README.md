@@ -1,69 +1,64 @@
-# 服務衝突檢查系統 — GitHub Pages + Local Connector
+# 服務衝突檢查系統 v0.3
 
-## 架構
+## 一般使用者
+
+1. 開啟 GitHub Pages。
+2. 若顯示「Connector 未連線」，按「下載 Windows 連線器」。
+3. 開啟 `ServiceConflictConnector.exe`。
+4. 連線器會自動：
+   - 啟動本機 API `127.0.0.1:8765`
+   - 加入目前 Windows 使用者的開機自動啟動
+   - 常駐系統列
+   - 開啟服務衝突網站
+5. 之後不需要 CMD，也不需要安裝 Python。
+
+## 開發者
+
+### 本機 Python 測試
+
+```powershell
+pip install -r connector/requirements.txt
+python connector/connector.py
+```
+
+### GitHub 自動打包 Windows EXE
+
+專案包含：
 
 ```text
-GitHub Pages / chkia.dev
-        │
-        │ HTTP localhost
-        ▼
-127.0.0.1:8765
-Local Connector
-   │          │
-   ▼          ▼
- 仁寶        照管
+.github/workflows/build-connector.yml
+ServiceConflictConnector.spec
 ```
 
-## 安全原則
-
-- GitHub Pages 不保存仁寶/照管帳號密碼。
-- Session、Cookie、Token 應只存在使用者自己的電腦。
-- Connector 只回傳衝突分析必要欄位。
-- 正式版應限制 CORS，只允許你的正式網站網域。
-- 不建議把 Session、Cookie、Token 直接回傳前端。
-
-## 執行 Connector
-
-```bash
-cd connector
-pip install -r requirements.txt
-python connector.py
-```
-
-看到：
+Push 到 `main` 後，GitHub Actions 會使用 `windows-latest` 建置：
 
 ```text
-Listening on http://127.0.0.1:8765
+dist/ServiceConflictConnector.exe
 ```
 
-代表本機服務正常。
+同時建立／更新 GitHub Release，前端下載網址固定為：
 
-## 開啟前端
+```text
+https://github.com/biubiusmile/service-conflict-web/releases/latest/download/ServiceConflictConnector.exe
+```
 
-可直接打開 `web/index.html` 測試。
+## v0.3 已完成
 
-部署 GitHub Pages 時，將 `web` 內容放到 Repository 的 Pages 來源目錄。
+- 網頁自動偵測 Connector。
+- 未安裝時顯示下載按鈕。
+- 每 3 秒重新偵測，安裝後不需要手動刷新。
+- Connector 可打包為無 CMD 視窗的 Windows EXE。
+- 第一次執行後自動加入 Windows 使用者開機啟動。
+- 系統列常駐。
+- 支援 Chrome Private Network Access header。
+- 限制 CORS 到指定網站來源。
+- 帳密 / Cookie / Token 不傳到 GitHub Pages。
 
-## 下一階段
+## 尚未完成
 
-目前 `/status/compal`、`/status/lcms` 與 `/services` 使用模擬資料。
+目前 `/services` 仍使用示範資料。
 
-下一版需把既有的：
-
-- Chrome CDP 連線
-- 仁寶 Session/API 偵測
-- 照管登入資料偵測
-- 班表/服務資料抓取
-
-接到 `connector.py` 中。
-
-建議不要重新做「輸入帳密」功能，而是讓使用者在官方網站自己登入，再由 Connector 判斷登入狀態。
-
-
-## v0.2
-
-- 網頁新增「登入仁寶」「登入照管」。
-- Connector 會使用獨立 Chrome Profile 開啟官方網站。
-- 不在 GitHub Pages 輸入或保存官方帳密。
-- `/status/compal` 與 `/status/lcms` 可檢查專用 Chrome 是否已進入登入後頁面。
-- 下一版接回舊程式已驗證過的真實 Session/API 擷取。
+下一階段要接：
+- 仁寶既有 CDP + API
+- 照管既有 Session + QD120A
+- 真實跨單位服務衝突規則
