@@ -59,7 +59,48 @@ async function api(path, options={}, timeoutMs=2500) {
 function showAuthScreen(message="") {
   $("authScreen").classList.remove("hidden");
   $("appShell").classList.add("hidden");
-  $("authMessage").textContent = message;
+  if ($("authMessage")) $("authMessage").textContent = message;
+}
+
+function showConnectorStep(state, version="") {
+  showAuthScreen();
+  $("connectorStep").classList.remove("hidden");
+  $("authFormWrap").classList.add("hidden");
+
+  const badge = $("authConnectorBadge");
+  const downloadBox = $("connectorDownloadBox");
+
+  if (state === "checking") {
+    $("connectorStepTitle").textContent = "正在檢查連線器";
+    $("connectorStepText").textContent = "請稍候…";
+    badge.textContent = "檢查中";
+    badge.className = "badge wait";
+    downloadBox.classList.add("hidden");
+  } else if (state === "missing") {
+    $("connectorStepTitle").textContent = "尚未連線服務衝突連線器";
+    $("connectorStepText").textContent = "第一次使用請先下載並開啟連線器。";
+    badge.textContent = "未連線";
+    badge.className = "badge bad";
+    downloadBox.classList.remove("hidden");
+  } else if (state === "outdated") {
+    $("connectorStepTitle").textContent = "連線器版本過舊";
+    $("connectorStepText").textContent = "請關閉目前的舊版，再下載並開啟最新版。";
+    badge.textContent = version ? "舊版 v" + version : "版本過舊";
+    badge.className = "badge bad";
+    downloadBox.classList.remove("hidden");
+  } else if (state === "ready") {
+    $("connectorStepTitle").textContent = "連線器已就緒";
+    $("connectorStepText").textContent = version ? "已連線 v" + version : "已連線";
+    badge.textContent = version ? "已連線 v" + version : "已連線";
+    badge.className = "badge good";
+    downloadBox.classList.add("hidden");
+  }
+}
+
+function showLoginForm() {
+  $("connectorStep").classList.add("hidden");
+  $("authFormWrap").classList.remove("hidden");
+  showAuthScreen();
 }
 
 function showApp() {
@@ -69,40 +110,62 @@ function showApp() {
 }
 
 async function loadAuthMode() {
+  const data = await api("/auth/status", {}, 2500);
+  setupMode = !data.configured;
+
+  $("authTitle").textContent = setupMode ? "首次設定管理者" : "帳號登入";
+  $("authSubtitle").textContent = setupMode
+    ? "這台電腦尚未建立帳號，請先建立第一個管理者帳號"
+    : "請輸入帳號及密碼";
+  $("btnAuthSubmit").textContent = setupMode ? "建立管理者帳號" : "登入";
+  $("authPasswordConfirmWrap").classList.toggle("hidden", !setupMode);
+
+  if (authToken) {
+    try {
+      currentUser = await api("/auth/me", {}, 2500);
+      showApp();
+      return true;
+    } catch (_) {
+      authToken = "";
+      sessionStorage.removeItem("serviceConflictToken");
+    }
+  }
+
+  showLoginForm();
+  return false;
+}
+
+async function bootstrapAuthFlow() {
+  showConnectorStep("checking");
+
+  let health = null;
   try {
-    const data = await api("/auth/status", {}, 2500);
-    setupMode = !data.configured;
-
-    $("authTitle").textContent = setupMode ? "首次設定管理者" : "帳號登入";
-    $("authSubtitle").textContent = setupMode
-      ? "請先建立第一個管理者帳號"
-      : "請輸入帳號及密碼";
-    $("btnAuthSubmit").textContent = setupMode ? "建立管理者帳號" : "登入";
-    $("authPasswordConfirmWrap").classList.toggle("hidden", !setupMode);
-
-    if (authToken) {
-      try {
-        currentUser = await api("/auth/me", {}, 2500);
-        showApp();
-        return true;
-      } catch (_) {
-        authToken = "";
-        sessionStorage.removeItem("serviceConflictToken");
-      }
-    }
-
-    showAuthScreen();
+    health = await api("/health", {}, 1800);
+  } catch (_) {
+    showConnectorStep("missing");
     return false;
+  }
+
+  connectorOnline = true;
+  setConnectorState(true, health.version || "");
+
+  if (!health.auth) {
+    showConnectorStep("outdated", health.version || "");
+    return false;
+  }
+
+  showConnectorStep("ready", health.version || "");
+
+  try {
+    return await loadAuthMode();
   } catch (e) {
-    let message = e.message || "連線器無回應";
+    let message = e.message || "登入功能異常";
     if (message.includes("404")) {
-      message = "目前執行中的 Connector 版本過舊，請關閉舊版並開啟最新版。";
-    } else if (message.includes("Failed to fetch") || message.includes("AbortError")) {
-      message = "無法連線 Connector，請確認連線器仍在執行。";
+      showConnectorStep("outdated", health.version || "");
     } else {
-      message = "Connector 驗證功能異常：" + message;
+      showLoginForm();
+      $("authMessage").textContent = "驗證功能異常：" + message;
     }
-    showAuthScreen(message);
     return false;
   }
 }
@@ -417,37 +480,32 @@ $("authPassword").addEventListener("keydown", e => {
 $("authPasswordConfirm").addEventListener("keydown", e => {
   if (e.key === "Enter") submitAuth();
 });
+$("btnAuthRetryConnector").onclick = bootstrapAuthFlow;
 $("btnLogout").onclick = logout;
 $("btnAdmin").onclick = ()=>{ window.location.href = "./admin.html"; };
 
 setConnectorState(false);
-
-(async ()=>{
-  const online = await ping(true);
-  if (!online) {
-    showAuthScreen("無法連線 Connector，請確認連線器仍在執行。");
-    return;
-  }
-
-  try {
-    const health = await api("/health", {}, 2500);
-    if (!health.auth) {
-      showAuthScreen("目前執行中的 Connector 版本過舊，請關閉舊版並開啟最新版。");
-      return;
-    }
-  } catch (e) {
-    showAuthScreen("無法確認 Connector 版本：" + (e.message || e));
-    return;
-  }
-
-  const loggedIn = await loadAuthMode();
+bootstrapAuthFlow().then(async loggedIn => {
   if (loggedIn) {
-    await ping(false);
     await refreshStatuses();
   }
-})();
+});
 
 setInterval(async ()=>{
+  if (!$("authScreen").classList.contains("hidden")) {
+    if (!connectorOnline || !$("authFormWrap").classList.contains("hidden")) return;
+
+    try {
+      const health = await api("/health", {}, 1800);
+      if (health.auth) {
+        connectorOnline = true;
+        setConnectorState(true, health.version || "");
+        await loadAuthMode();
+      }
+    } catch (_) {}
+    return;
+  }
+
   if (!authToken) return;
   const ok = await ping(true);
   if (ok) await refreshStatuses();
