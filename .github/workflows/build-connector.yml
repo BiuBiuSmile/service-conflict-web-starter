@@ -3,12 +3,14 @@ name: Build Windows Connector
 on:
   workflow_dispatch:
   push:
-    paths:
-      - "connector/**"
-      - "ServiceConflictConnector.spec"
-      - ".github/workflows/build-connector.yml"
     branches:
       - main
+    paths:
+      - "connector.py"
+      - "requirements.txt"
+      - "ServiceConflictConnector.spec"
+      - "version_info.txt"
+      - ".github/workflows/build-connector.yml"
 
 permissions:
   contents: write
@@ -29,9 +31,15 @@ jobs:
       - name: Install dependencies
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           python -m pip install --upgrade pip
-          pip install -r connector/requirements.txt
-          pip install pyinstaller
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller
+
+      - name: Verify dependencies
+        shell: pwsh
+        run: |
+          python -c "import requests, flask, flask_cors, tkinter; print('Dependencies OK')"
 
       - name: Build EXE
         shell: pwsh
@@ -60,7 +68,7 @@ jobs:
           make_latest: true
           files: dist/ServiceConflictConnector.exe
           body: |
-            Windows 服務衝突連線器。
-            下載後直接開啟即可，不需要 Python 或 CMD。
+            Windows 服務衝突連線器 v0.3.2。
+            此版本已移除開機自動啟動、系統列常駐與 UPX 壓縮，以降低防毒誤判。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
