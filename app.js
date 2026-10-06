@@ -21,11 +21,11 @@ function setConnectorState(ok, version="") {
   const panel = $("installPanel");
 
   if (ok) {
-    badge.textContent = version ? `Connector 已連線 v${version}` : "Connector 已連線";
+    badge.textContent = version ? `資料啟動器已連線 v${version}` : "資料啟動器已連線";
     badge.className = "badge good";
     panel.classList.add("hidden");
   } else {
-    badge.textContent = "Connector 未連線";
+    badge.textContent = "資料啟動器未連線";
     badge.className = "badge bad";
     panel.classList.remove("hidden");
   }
@@ -277,11 +277,11 @@ async function ping(silent=false) {
   try {
     const data = await api("/health", {}, 1800);
     setConnectorState(true, data.version || "");
-    if (!silent) log("本機 Connector 連線成功", "ping-ok");
+    if (!silent) log("本機資料啟動器連線成功", "ping-ok");
     return true;
   } catch (e) {
     setConnectorState(false);
-    if (!silent) log("尚未偵測到 Connector。請先下載並開啟 Windows 連線器。", "ping-fail");
+    if (!silent) log("尚未偵測到資料啟動器。請先下載並開啟 Windows 連線器。", "ping-fail");
     return false;
   }
 }
@@ -507,7 +507,7 @@ $("btnDemo").onclick = async ()=>{
       {"unit":"大慶","worker":"王小明","client":"李OO","date":"2026-10-06","start":"09:30","end":"10:30"}
     ];
     render(rows);
-    log("Connector 未啟動，已載入前端示範資料");
+    log("資料啟動器未啟動，已載入前端示範資料");
     return;
   }
   const data = await api("/demo");
