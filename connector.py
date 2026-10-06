@@ -20,7 +20,7 @@ import websocket
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-VERSION = "0.5.2"
+VERSION = "0.5.3"
 PORT = 8765
 WEBSITE_URL = "https://biubiusmile.github.io/service-conflict-web-starter/"
 
@@ -241,32 +241,46 @@ def auth_setup():
 
 @app.post("/auth/login")
 def auth_login():
-    payload = request.get_json(silent=True) or {}
-    username = str(payload.get("username") or "").strip()
-    password = str(payload.get("password") or "")
+    started = time.time()
 
-    users = load_users()
-    user = users.get(username)
+    try:
+        payload = request.get_json(silent=True) or {}
+        username = str(payload.get("username") or "").strip()
+        password = str(payload.get("password") or "")
 
-    if (
-        not user
-        or not user.get("enabled", True)
-        or not verify_password(
+        if not username or not password:
+            return jsonify(error="請輸入帳號及密碼"), 400
+
+        users = load_users()
+        user = users.get(username)
+
+        if not user:
+            return jsonify(error="帳號或密碼錯誤"), 401
+
+        if not user.get("enabled", True):
+            return jsonify(error="此帳號已停用，請聯絡管理者"), 403
+
+        if not verify_password(
             password,
             user.get("salt", ""),
             user.get("password_hash", ""),
+        ):
+            return jsonify(error="帳號或密碼錯誤"), 401
+
+        role = user.get("role", "user")
+        token = issue_token(username, role)
+
+        return jsonify(
+            ok=True,
+            token=token,
+            user={"username": username, "role": role},
+            elapsed_ms=int((time.time() - started) * 1000),
         )
-    ):
-        return jsonify(error="帳號或密碼錯誤"), 401
 
-    role = user.get("role", "user")
-    token = issue_token(username, role)
-
-    return jsonify(
-        ok=True,
-        token=token,
-        user={"username": username, "role": role},
-    )
+    except Exception as e:
+        return jsonify(
+            error=f"登入處理失敗：{type(e).__name__}: {e}",
+        ), 500
 
 
 @app.post("/auth/logout")
