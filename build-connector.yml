@@ -4,7 +4,8 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "connector/**"
+      - "connector.py"
+      - "requirements.txt"
       - "ServiceConflictConnector.spec"
       - ".github/workflows/build-connector.yml"
     branches:
