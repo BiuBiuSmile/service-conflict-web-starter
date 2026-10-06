@@ -14,7 +14,7 @@ from flask_cors import CORS
 
 VERSION = "0.3.0"
 PORT = 8765
-WEBSITE_URL = "https://biubiusmile.github.io/service-conflict-web/"
+WEBSITE_URL = "https://biubiusmile.github.io/service-conflict-web-starter/"
 
 app = Flask(__name__)
 

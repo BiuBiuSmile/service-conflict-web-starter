@@ -39,7 +39,7 @@ dist/ServiceConflictConnector.exe
 同時建立／更新 GitHub Release，前端下載網址固定為：
 
 ```text
-https://github.com/biubiusmile/service-conflict-web/releases/latest/download/ServiceConflictConnector.exe
+https://github.com/BiuBiuSmile/service-conflict-web-starter/releases/latest/download/ServiceConflictConnector.exe
 ```
 
 ## v0.3 已完成
