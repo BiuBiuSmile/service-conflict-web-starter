@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>服務衝突檢查系統</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <main class="wrap">
+    <section class="hero">
+      <div>
+        <div class="eyebrow">LOCAL CONNECTOR MODE</div>
+        <h1>服務衝突檢查系統</h1>
+        <p>GitHub Pages 只負責介面；仁寶與照管資料由使用者電腦上的 Connector 讀取。</p>
+      </div>
+      <div id="connectorBadge" class="badge bad">Connector 未連線</div>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>資料連線</h2>
+        <div class="status-row">
+          <div>
+            <strong>仁寶</strong>
+            <div id="compalStatus" class="muted">尚未檢查</div>
+          </div>
+          <div class="btn-group">
+            <button id="btnOpenCompal">登入仁寶</button>
+            <button id="btnCompal">檢查狀態</button>
+          </div>
+        </div>
+
+        <div class="status-row">
+          <div>
+            <strong>照管</strong>
+            <div id="lcmsStatus" class="muted">尚未檢查</div>
+          </div>
+          <div class="btn-group">
+            <button id="btnOpenLcms">登入照管</button>
+            <button id="btnLcms">檢查狀態</button>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2>衝突分析</h2>
+        <label>
+          日期
+          <input id="dateInput" type="date">
+        </label>
+        <button id="btnAnalyze" class="primary">開始抓取並分析</button>
+        <p class="hint">第一版使用 Connector 回傳的標準化班表資料進行比對。</p>
+      </article>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>分析結果</h2>
+        <button id="btnDemo" class="ghost">載入示範資料</button>
+      </div>
+      <div id="summary" class="summary">尚未分析</div>
+      <div id="results"></div>
+    </section>
+
+    <section class="card">
+      <h2>連線記錄</h2>
+      <pre id="log"></pre>
+    </section>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>
