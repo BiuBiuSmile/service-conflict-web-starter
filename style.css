@@ -215,3 +215,20 @@ pre{white-space:pre-wrap;background:#0f172a;color:#cbd5e1;border-radius:12px;pad
   min-height:100vh;
   overflow:hidden;
 }
+
+
+/* 登入/Connector 畫面切換：hidden 必須完全覆蓋 auth-screen 的 flex */
+.auth-screen.hidden{
+  display:none !important;
+}
+#appShell.hidden{
+  display:none !important;
+}
+.auth-page.hidden{
+  display:none !important;
+}
+
+/* 主系統登入後直接從頁面頂端開始，不保留前一頁高度 */
+#appShell{
+  min-height:auto;
+}
