@@ -15,7 +15,7 @@ import websocket
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 PORT = 8765
 WEBSITE_URL = "https://biubiusmile.github.io/service-conflict-web-starter/"
 
@@ -130,27 +130,74 @@ def launch_login(system):
 
 def browser_status(system):
     cfg = SYSTEMS[system]
-    if not cdp_available(system):
-        return {"running": False, "logged_in": False, "message": "專用 Chrome 尚未啟動。", "url": ""}
 
     try:
+        if not cdp_available(system):
+            return {
+                "running": False,
+                "logged_in": False,
+                "message": "專用 Chrome 尚未啟動。",
+                "url": "",
+            }
+
         targets = cdp_json(system, "/json/list")
-        pages = [x for x in targets if isinstance(x, dict) and x.get("type") == "page"]
-        related = [x for x in pages if cfg["host"] in str(x.get("url") or "")]
+        pages = [
+            x for x in targets
+            if isinstance(x, dict) and x.get("type") == "page"
+        ]
+        related = [
+            x for x in pages
+            if cfg["host"] in str(x.get("url") or "")
+        ]
+
+        if not related:
+            return {
+                "running": True,
+                "logged_in": False,
+                "message": f"{cfg['name']} 官方頁面已關閉。",
+                "url": "",
+            }
+
+        url = str(related[0].get("url") or "")
+
+        if system == "lcms":
+            try:
+                ok, message = probe_lcms()
+                return {
+                    "running": True,
+                    "logged_in": bool(ok),
+                    "message": message,
+                    "url": url,
+                }
+            except Exception as e:
+                return {
+                    "running": True,
+                    "logged_in": False,
+                    "message": f"照管 Session 檢查失敗：{type(e).__name__}: {e}",
+                    "url": url,
+                }
+
+        lower = url.lower()
+        logged = (
+            cfg["host"] in lower
+            and "/login" not in lower
+            and "/signin" not in lower
+            and lower.rstrip("/") != "https://luna.compal-health.com"
+        )
+        return {
+            "running": True,
+            "logged_in": logged,
+            "message": "已偵測到登入後頁面。" if logged else "等待使用者在官方頁面完成登入。",
+            "url": url,
+        }
+
     except Exception as e:
-        return {"running": True, "logged_in": False, "message": f"暫時無法讀取分頁：{e}", "url": ""}
-
-    if not related:
-        return {"running": True, "logged_in": False, "message": f"{cfg['name']} 官方頁面已關閉。", "url": ""}
-
-    url = str(related[0].get("url") or "")
-    if system == "lcms":
-        ok, message = probe_lcms()
-        return {"running": True, "logged_in": ok, "message": message, "url": url}
-
-    lower=url.lower()
-    logged = cfg["host"] in lower and "/login" not in lower and "/signin" not in lower and lower.rstrip("/") != "https://luna.compal-health.com"
-    return {"running": True, "logged_in": logged, "message": "已偵測到登入後頁面。" if logged else "等待使用者在官方頁面完成登入。", "url": url}
+        return {
+            "running": cdp_available(system),
+            "logged_in": False,
+            "message": f"狀態檢查失敗：{type(e).__name__}: {e}",
+            "url": "",
+        }
 
 
 LCMS_CASE_URL = (
@@ -189,7 +236,7 @@ def _system_page(system):
     return pages[0] if pages else None
 
 def _cdp_call(ws_url, method, params=None, call_id=1):
-    ws = websocket.create_connection(ws_url, timeout=5, origin="http://localhost")
+    ws = websocket.create_connection(ws_url, timeout=5, suppress_origin=True)
     try:
         ws.send(json.dumps({
             "id": call_id,
@@ -535,14 +582,25 @@ def connect(system):
 def status(system):
     if system not in SYSTEMS:
         return jsonify(error="unknown system"), 404
-    s = browser_status(system)
-    return jsonify(
-        system=system,
-        logged_in=s["logged_in"],
-        running=s["running"],
-        message=s["message"],
-        url=s["url"],
-    )
+
+    try:
+        s = browser_status(system)
+        return jsonify(
+            system=system,
+            logged_in=bool(s.get("logged_in")),
+            running=bool(s.get("running")),
+            message=str(s.get("message") or ""),
+            url=str(s.get("url") or ""),
+        )
+    except Exception as e:
+        # 狀態檢查永遠回傳可讀 JSON，不讓前端只看到 Flask 500 HTML。
+        return jsonify(
+            system=system,
+            logged_in=False,
+            running=cdp_available(system),
+            message=f"狀態檢查失敗：{type(e).__name__}: {e}",
+            url="",
+        ), 200
 
 def demo_rows():
     return [
