@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>管理者後台｜服務衝突檢查系統</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<main class="wrap">
+  <section class="hero">
+    <div>
+      <div class="eyebrow">ADMIN</div>
+      <h1>管理者後台</h1>
+    </div>
+    <div class="btn-group">
+      <button id="btnBack">返回系統</button>
+      <button id="btnAdminLogout">登出</button>
+    </div>
+  </section>
+
+  <section id="adminDenied" class="card hidden">
+    <h2>無法進入管理者後台</h2>
+    <p id="adminDeniedText" class="muted"></p>
+  </section>
+
+  <div id="adminContent" class="hidden">
+    <section class="card">
+      <h2>新增帳號</h2>
+      <div class="admin-form-grid">
+        <label>帳號<input id="newUsername" type="text"></label>
+        <label>密碼<input id="newPassword" type="password"></label>
+        <label>權限
+          <select id="newRole">
+            <option value="user">一般使用者</option>
+            <option value="admin">管理者</option>
+          </select>
+        </label>
+      </div>
+      <button id="btnCreateUser" class="primary admin-create">新增帳號</button>
+      <div id="adminMessage" class="auth-message"></div>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>帳號管理</h2>
+        <button id="btnRefreshUsers">重新整理</button>
+      </div>
+      <div class="issue-table-wrap">
+        <table class="issue-table admin-table">
+          <thead>
+            <tr>
+              <th>帳號</th>
+              <th>權限</th>
+              <th>狀態</th>
+              <th>建立時間</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="userRows"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</main>
+<script src="./admin.js"></script>
+</body>
+</html>
