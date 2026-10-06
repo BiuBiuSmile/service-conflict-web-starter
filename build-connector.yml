@@ -2,14 +2,15 @@ name: Build Windows Connector
 
 on:
   workflow_dispatch:
+
   push:
+    branches:
+      - main
     paths:
       - "connector.py"
       - "requirements.txt"
       - "ServiceConflictConnector.spec"
       - ".github/workflows/build-connector.yml"
-    branches:
-      - main
 
 permissions:
   contents: write
@@ -34,6 +35,11 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install pyinstaller
+
+      - name: Verify dependencies
+        shell: pwsh
+        run: |
+          python -c "import requests; import flask; import flask_cors; import pystray; from PIL import Image; print('Dependencies OK')"
 
       - name: Build EXE
         shell: pwsh
