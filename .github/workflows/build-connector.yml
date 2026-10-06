@@ -39,7 +39,7 @@ jobs:
       - name: Verify dependencies
         shell: pwsh
         run: |
-          python -c "import requests, flask, flask_cors, tkinter; print('Dependencies OK')"
+          python -c "import requests, flask, flask_cors, tkinter, websocket; print('Dependencies OK')"
 
       - name: Build EXE
         shell: pwsh
@@ -68,7 +68,7 @@ jobs:
           make_latest: true
           files: dist/ServiceConflictConnector.exe
           body: |
-            Windows 服務衝突連線器 v0.3.2。
-            此版本已移除開機自動啟動、系統列常駐與 UPX 壓縮，以降低防毒誤判。
+            Windows 服務衝突連線器 v0.4.0。
+            已接入照管 QD120A 真實服務紀錄與自動登入狀態偵測。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
