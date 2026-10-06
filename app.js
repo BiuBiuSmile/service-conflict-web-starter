@@ -120,9 +120,8 @@ function showApp() {
   $("btnAdmin").classList.toggle("hidden", currentUser?.role !== "admin");
 }
 
-async function loadAuthMode() {
-  const data = await api("/auth/status", {}, 2500);
-  setupMode = !data.configured;
+function applyAuthConfiguredState(configured) {
+  setupMode = !configured;
 
   $("authTitle").textContent = setupMode ? "首次設定管理者" : "帳號登入";
   $("authSubtitle").textContent = setupMode
@@ -130,6 +129,11 @@ async function loadAuthMode() {
     : "請輸入帳號及密碼";
   $("btnAuthSubmit").textContent = setupMode ? "建立管理者帳號" : "登入";
   $("authPasswordConfirmWrap").classList.toggle("hidden", !setupMode);
+}
+
+async function loadAuthMode() {
+  const data = await api("/auth/status", {}, 2500);
+  applyAuthConfiguredState(Boolean(data.configured));
 
   if (authToken) {
     try {
@@ -166,6 +170,26 @@ async function bootstrapAuthFlow() {
   }
 
   showConnectorStep("ready", health.version || "");
+
+  // 新版 Connector 直接在 /health 回傳帳號是否已設定，
+  // 不再卡在「連線器已就緒」等待第二個狀態請求。
+  if (typeof health.configured === "boolean") {
+    applyAuthConfiguredState(health.configured);
+
+    if (authToken) {
+      try {
+        currentUser = await api("/auth/me", {}, 2500);
+        showApp();
+        return true;
+      } catch (_) {
+        authToken = "";
+        sessionStorage.removeItem("serviceConflictToken");
+      }
+    }
+
+    showLoginForm();
+    return false;
+  }
 
   try {
     return await loadAuthMode();
