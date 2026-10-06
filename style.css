@@ -115,3 +115,69 @@ pre{white-space:pre-wrap;background:#0f172a;color:#cbd5e1;border-radius:12px;pad
     min-width:860px;
   }
 }
+
+
+.hero-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+.auth-screen{
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+}
+.auth-card{
+  width:min(430px,100%);
+  background:#fff;
+  border:1px solid #e3e8f0;
+  border-radius:18px;
+  padding:30px;
+  box-shadow:0 12px 36px rgba(18,31,53,.10);
+}
+.auth-brand{
+  font-size:13px;
+  color:#64748b;
+  letter-spacing:.08em;
+  margin-bottom:8px;
+}
+.auth-card h1{font-size:28px;margin:0 0 6px}
+.auth-label{display:block;margin-top:16px;font-weight:700}
+.auth-label input{margin-top:7px}
+.auth-submit{margin-top:20px}
+.auth-message{
+  min-height:22px;
+  margin-top:12px;
+  color:#b91c1c;
+  font-size:14px;
+}
+
+.admin-form-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr 180px;
+  gap:14px;
+}
+.admin-form-grid label{font-weight:700}
+.admin-form-grid select{
+  display:block;
+  width:100%;
+  margin-top:8px;
+  padding:10px;
+  border:1px solid #ccd5e0;
+  border-radius:10px;
+  background:#fff;
+}
+.admin-create{max-width:180px}
+.admin-table select{
+  padding:7px 9px;
+  border:1px solid #ccd5e0;
+  border-radius:8px;
+  background:#fff;
+}
+.danger-btn{
+  color:#b91c1c;
+  border-color:#fecaca;
+  background:#fff7f7;
+}
+@media(max-width:760px){
+  .admin-form-grid{grid-template-columns:1fr}
+}
