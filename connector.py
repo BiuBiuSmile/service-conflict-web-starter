@@ -15,7 +15,7 @@ import websocket
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-VERSION = "0.4.3"
+VERSION = "0.4.4"
 PORT = 8765
 WEBSITE_URL = "https://biubiusmile.github.io/service-conflict-web-starter/"
 
@@ -235,8 +235,8 @@ def _system_page(system):
     ]
     return pages[0] if pages else None
 
-def _cdp_call(ws_url, method, params=None, call_id=1):
-    ws = websocket.create_connection(ws_url, timeout=5, suppress_origin=True)
+def _cdp_call(ws_url, method, params=None, call_id=1, timeout=30):
+    ws = websocket.create_connection(ws_url, timeout=timeout, suppress_origin=True)
     try:
         ws.send(json.dumps({
             "id": call_id,
@@ -261,12 +261,13 @@ def build_cdp_session(system):
         raise RuntimeError("找不到已開啟的官方頁面。")
 
     ws_url = page["webSocketDebuggerUrl"]
-    cookie_result = _cdp_call(ws_url, "Storage.getCookies", call_id=101)
+    cookie_result = _cdp_call(ws_url, "Storage.getCookies", call_id=101, timeout=15)
     ua_result = _cdp_call(
         ws_url,
         "Runtime.evaluate",
         {"expression": "navigator.userAgent", "returnByValue": True},
         call_id=102,
+        timeout=15,
     )
 
     s = requests.Session()
@@ -320,6 +321,7 @@ def browser_fetch_json(system, url, timeout=30):
             "returnByValue": True,
         },
         call_id=205,
+        timeout=max(15, timeout),
     )
 
     payload = result.get("result", {}).get("value")
@@ -388,7 +390,7 @@ def fetch_all_lcms_cases(session):
 
     while True:
         url = re.sub(r"offset=\d+", f"offset={offset}", LCMS_CASE_URL)
-        data = browser_fetch_json("lcms", url, timeout=30)
+        data = browser_fetch_json("lcms", url, timeout=90)
         if not isinstance(data, dict):
             raise RuntimeError("CA_FILTER 回傳格式不是物件。")
 
@@ -444,7 +446,7 @@ def query_qd120_rows(session, case_id, selected_date):
 
     while True:
         url = re.sub(r"offset=\d+", f"offset={offset}", url0)
-        data = browser_fetch_json("lcms", url, timeout=30)
+        data = browser_fetch_json("lcms", url, timeout=60)
         if not isinstance(data, dict):
             raise RuntimeError("QD120A 回傳格式不是物件。")
 
