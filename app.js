@@ -48,8 +48,19 @@ async function api(path, options={}, timeoutMs=2500) {
         ...(options.headers||{})
       }
     });
-    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
-    return await res.json();
+    const raw = await res.text();
+    let data = {};
+    try { data = raw ? JSON.parse(raw) : {}; } catch (_) { data = {error: raw}; }
+
+    if (!res.ok) {
+      const err = new Error(data.error || (`HTTP ${res.status}`));
+      err.status = res.status;
+      err.code = data.code || "";
+      err.data = data;
+      throw err;
+    }
+
+    return data;
   } finally {
     clearTimeout(timer);
   }
@@ -203,12 +214,16 @@ async function submitAuth() {
     await ping(false);
     await refreshStatuses();
   } catch (e) {
-    let msg = e.message;
-    try {
-      const match = msg.match(/\{.*\}$/s);
-      if (match) msg = JSON.parse(match[0]).error || msg;
-    } catch (_) {}
-    $("authMessage").textContent = msg;
+    if (e.code === "ALREADY_CONFIGURED" || e.status === 409) {
+      setupMode = false;
+      $("authTitle").textContent = "帳號登入";
+      $("authSubtitle").textContent = "管理者帳號已建立，請使用帳號密碼登入";
+      $("btnAuthSubmit").textContent = "登入";
+      $("authPasswordConfirmWrap").classList.add("hidden");
+      $("authMessage").textContent = e.message || "管理者帳號已建立，請改用登入。";
+    } else {
+      $("authMessage").textContent = e.message || "操作失敗";
+    }
   } finally {
     $("btnAuthSubmit").disabled = false;
   }
