@@ -210,6 +210,21 @@ function setAuthMode(mode) {
   $("authMessage").textContent = "";
 }
 
+function formatTaiwanDateTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("zh-TW", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date).replace(/\//g, "/");
+}
+
 async function refreshMembership() {
   if (!authToken) return;
   try {
@@ -220,15 +235,76 @@ async function refreshMembership() {
     const pay = $("btnPay");
 
     if (data.subscription_active) {
-      summary.textContent = "付費方案使用中，有效期限：" + (data.subscription_until || "");
-      badge.textContent = "已付費";
+      const expireText = formatTaiwanDateTime(data.subscription_until);
+      summary.innerHTML = `
+        <div class="plan-box plan-paid">
+          <div class="plan-topline">
+            <div>
+              <div class="plan-name">月費會員</div>
+              <div class="plan-subtitle">目前方案已啟用，可正常使用所有分析功能</div>
+            </div>
+            <span class="plan-status success">已啟用</span>
+          </div>
+          <div class="plan-meta">
+            <div class="plan-meta-item">
+              <span class="plan-meta-label">到期時間</span>
+              <strong>${expireText}</strong>
+            </div>
+            <div class="plan-meta-item">
+              <span class="plan-meta-label">使用權限</span>
+              <strong>完整功能</strong>
+            </div>
+          </div>
+        </div>
+      `;
+      badge.textContent = "付費會員";
       badge.className = "membership-pill paid";
       pay.classList.add("hidden");
     } else {
       const remain = Number(data.trial_remaining || 0);
-      summary.textContent = remain > 0
-        ? "目前為免費試用方案，成功完成一次分析才會扣 1 次。"
-        : "3 次免費試用已使用完畢，完成付款後即可繼續使用。";
+      summary.innerHTML = remain > 0
+        ? `
+          <div class="plan-box plan-trial">
+            <div class="plan-topline">
+              <div>
+                <div class="plan-name">免費試用</div>
+                <div class="plan-subtitle">成功完成一次分析才會扣 1 次</div>
+              </div>
+              <span class="plan-status trial">試用中</span>
+            </div>
+            <div class="plan-meta">
+              <div class="plan-meta-item">
+                <span class="plan-meta-label">剩餘次數</span>
+                <strong>${remain} 次</strong>
+              </div>
+              <div class="plan-meta-item">
+                <span class="plan-meta-label">總試用次數</span>
+                <strong>${Number(data.trial_limit || 3)} 次</strong>
+              </div>
+            </div>
+          </div>
+        `
+        : `
+          <div class="plan-box plan-expired">
+            <div class="plan-topline">
+              <div>
+                <div class="plan-name">免費試用</div>
+                <div class="plan-subtitle">免費次數已使用完畢，完成付款後即可繼續使用</div>
+              </div>
+              <span class="plan-status expired">已用完</span>
+            </div>
+            <div class="plan-meta">
+              <div class="plan-meta-item">
+                <span class="plan-meta-label">剩餘次數</span>
+                <strong>0 次</strong>
+              </div>
+              <div class="plan-meta-item">
+                <span class="plan-meta-label">下一步</span>
+                <strong>升級付費方案</strong>
+              </div>
+            </div>
+          </div>
+        `;
       badge.textContent = "免費剩餘 " + remain + " 次";
       badge.className = remain > 0 ? "membership-pill trial" : "membership-pill expired";
       pay.classList.toggle("hidden", remain > 0);
