@@ -418,3 +418,91 @@ pre{background:#16243a;color:#d5e2f1;border:1px solid #263a56}
   border-color:#6d8db9;
   box-shadow:0 8px 18px rgba(95,127,174,.18);
 }
+
+
+/* v0.6.0 會員與付費 */
+.auth-mode-tabs{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  padding:5px;
+  margin-bottom:20px;
+  border-radius:12px;
+  background:#edf3fb;
+}
+.auth-mode-tab{
+  border:0;
+  background:transparent;
+  color:#60728d;
+}
+.auth-mode-tab.active{
+  background:#fff;
+  color:#365f94;
+  box-shadow:0 2px 8px rgba(74,105,145,.12);
+}
+.auth-secondary{
+  width:100%;
+  margin-top:9px;
+}
+.trial-note{
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  margin-top:18px;
+  padding:13px 14px;
+  border-radius:12px;
+  background:#eef5ff;
+  color:#425d7c;
+  font-size:13px;
+}
+.membership-card{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:18px;
+  padding:18px 20px;
+  margin-bottom:18px;
+  background:linear-gradient(135deg,#f8fbff 0%,#eef5ff 100%);
+  border:1px solid #d7e4f4;
+  border-radius:16px;
+  box-shadow:0 5px 18px rgba(64,92,126,.06);
+}
+.membership-card h2{
+  margin:2px 0 6px;
+}
+.membership-summary{
+  color:#61728a;
+  font-size:14px;
+}
+.membership-actions{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+.membership-pill{
+  padding:8px 12px;
+  border-radius:999px;
+  font-weight:800;
+  font-size:13px;
+  background:#eef5ff;
+  color:#46688f;
+}
+.membership-pill.trial{background:#eaf3ff;color:#3e6595}
+.membership-pill.paid{background:#e8f7ef;color:#27704b}
+.membership-pill.expired{background:#fff0ef;color:#9d4f49}
+button.primary.compact{
+  width:auto;
+  margin-top:0;
+}
+@media(max-width:760px){
+  .membership-card{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+  .membership-actions{
+    width:100%;
+    justify-content:flex-start;
+  }
+}

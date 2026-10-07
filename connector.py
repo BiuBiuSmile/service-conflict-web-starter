@@ -21,9 +21,10 @@ from openpyxl import load_workbook
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-VERSION = "0.5.7"
+VERSION = "0.6.0"
 PORT = 8765
 WEBSITE_URL = "https://biubiusmile.github.io/service-conflict-web-starter/"
+CENTRAL_API_BASE = os.environ.get("SERVICE_CONFLICT_API_BASE", "http://127.0.0.1:5001").rstrip("/")
 
 app = Flask(__name__)
 
@@ -126,25 +127,25 @@ def get_auth_context():
         return None
 
     token = header[7:].strip()
-    session = AUTH_SESSIONS.get(token)
-    if not session:
+    if not token:
         return None
 
-    if session.get("expires", 0) < time.time():
-        AUTH_SESSIONS.pop(token, None)
+    try:
+        r = requests.get(
+            CENTRAL_API_BASE + "/auth/me",
+            headers={"Authorization": "Bearer " + token},
+            timeout=6,
+        )
+        if not r.ok:
+            return None
+        data = r.json()
+        return {
+            "token": token,
+            "username": str(data.get("email") or ""),
+            "role": str(data.get("role") or "user"),
+        }
+    except Exception:
         return None
-
-    users = load_users()
-    user = users.get(session.get("username"))
-    if not user or not user.get("enabled", True):
-        AUTH_SESSIONS.pop(token, None)
-        return None
-
-    return {
-        "token": token,
-        "username": session["username"],
-        "role": user.get("role", "user"),
-    }
 
 
 def require_auth(fn):
@@ -1127,14 +1128,15 @@ def filter_cases_from_compal(lcms_cases):
 
 @app.get("/health")
 def health():
-    users = load_users()
     return jsonify(
         ok=True,
         version=VERSION,
         auth=True,
         admin=True,
-        configured=bool(users),
+        configured=True,
+        central_api=CENTRAL_API_BASE,
     )
+
 
 @app.post("/connect/<system>")
 @require_auth

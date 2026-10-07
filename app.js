@@ -1,12 +1,17 @@
 const CONNECTOR = "http://127.0.0.1:8765";
-const MIN_CONNECTOR_VERSION = "0.5.7";
+const MIN_CONNECTOR_VERSION = "0.6.0";
 const $ = (id) => document.getElementById(id);
+const CLOUD_API = String(
+  (window.SERVICE_CONFLICT_CONFIG && window.SERVICE_CONFLICT_CONFIG.apiBase) ||
+  "http://127.0.0.1:5001"
+).replace(/\/$/, "");
 
 let connectorOnline = false;
 let lastLogKey = "";
-let authToken = sessionStorage.getItem("serviceConflictToken") || "";
+let authToken = localStorage.getItem("serviceConflictCloudToken") || "";
 let currentUser = null;
-let setupMode = false;
+let authMode = "login";
+let membership = {can_analyze:false, trial_remaining:0, subscription_active:false};
 let uploadedCaseNames = [];
 let lcmsLoggedIn = false;
 let compalLoggedIn = false;
@@ -36,12 +41,16 @@ function updateAnalyzeAvailability() {
   const button = $("btnAnalyze");
   if (!button) return;
 
-  const canAnalyze = connectorOnline && lcmsLoggedIn;
+  const canAnalyze = connectorOnline && lcmsLoggedIn && Boolean(membership.can_analyze);
   button.disabled = !canAnalyze;
-  button.title = canAnalyze
-    ? "照管已登入，可以開始分析"
-    : "請先登入照管，並確認狀態為已登入";
 
+  if (!lcmsLoggedIn) {
+    button.title = "請先登入照管，並確認狀態為已登入";
+  } else if (!membership.can_analyze) {
+    button.title = "免費試用已用完，請先完成付費";
+  } else {
+    button.title = "可以開始分析";
+  }
   button.setAttribute("aria-disabled", canAnalyze ? "false" : "true");
 }
 
@@ -95,7 +104,35 @@ async function api(path, options={}, timeoutMs=2500) {
       err.data = data;
       throw err;
     }
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
+async function cloudApi(path, options={}, timeoutMs=12000) {
+  const ctl = new AbortController();
+  const timer = setTimeout(()=>ctl.abort(), timeoutMs);
+  try {
+    const res = await fetch(CLOUD_API + path, {
+      ...options,
+      signal: ctl.signal,
+      headers:{
+        "Content-Type":"application/json",
+        ...(authToken ? {"Authorization":"Bearer " + authToken} : {}),
+        ...(options.headers || {})
+      }
+    });
+    const raw = await res.text();
+    let data = {};
+    try { data = raw ? JSON.parse(raw) : {}; } catch (_) { data = {error:raw}; }
+    if (!res.ok) {
+      const err = new Error(data.error || ("HTTP " + res.status));
+      err.status = res.status;
+      err.code = data.code || "";
+      err.data = data;
+      throw err;
+    }
     return data;
   } finally {
     clearTimeout(timer);
@@ -154,36 +191,74 @@ function showApp() {
   $("authScreen").classList.add("hidden");
   $("appShell").classList.remove("hidden");
   $("btnAdmin").classList.toggle("hidden", currentUser?.role !== "admin");
+  refreshMembership();
 }
 
-function applyAuthConfiguredState(configured) {
-  setupMode = !configured;
+function setAuthMode(mode) {
+  authMode = mode === "register" ? "register" : "login";
+  const registering = authMode === "register";
 
-  $("authTitle").textContent = setupMode ? "首次設定管理者" : "帳號登入";
-  $("authSubtitle").textContent = setupMode
-    ? "這台電腦尚未建立帳號，請先建立第一個管理者帳號"
-    : "請輸入帳號及密碼";
-  $("btnAuthSubmit").textContent = setupMode ? "建立管理者帳號" : "登入";
-  $("authPasswordConfirmWrap").classList.toggle("hidden", !setupMode);
+  $("btnModeLogin").classList.toggle("active", !registering);
+  $("btnModeRegister").classList.toggle("active", registering);
+  $("authTitle").textContent = registering ? "建立 Email 帳號" : "Email 登入";
+  $("authSubtitle").textContent = registering
+    ? "註冊後需到信箱點擊驗證連結，完成後才能登入"
+    : "請使用已完成信箱驗證的帳號登入";
+  $("authPasswordConfirmWrap").classList.toggle("hidden", !registering);
+  $("btnAuthSubmit").textContent = registering ? "註冊並寄送驗證信" : "登入";
+  $("btnResendVerification").classList.toggle("hidden", !registering);
+  $("authMessage").textContent = "";
 }
 
-async function loadAuthMode() {
-  const data = await api("/auth/status", {}, 2500);
-  applyAuthConfiguredState(Boolean(data.configured));
+async function refreshMembership() {
+  if (!authToken) return;
+  try {
+    const data = await cloudApi("/usage/status");
+    membership = data;
+    const summary = $("membershipSummary");
+    const badge = $("trialBadge");
+    const pay = $("btnPay");
 
-  if (authToken) {
-    try {
-      currentUser = await api("/auth/me", {}, 2500);
-      showApp();
-      return true;
-    } catch (_) {
-      authToken = "";
-      sessionStorage.removeItem("serviceConflictToken");
+    if (data.subscription_active) {
+      summary.textContent = "付費方案使用中，有效期限：" + (data.subscription_until || "");
+      badge.textContent = "已付費";
+      badge.className = "membership-pill paid";
+      pay.classList.add("hidden");
+    } else {
+      const remain = Number(data.trial_remaining || 0);
+      summary.textContent = remain > 0
+        ? "目前為免費試用方案，成功完成一次分析才會扣 1 次。"
+        : "3 次免費試用已使用完畢，完成付款後即可繼續使用。";
+      badge.textContent = "免費剩餘 " + remain + " 次";
+      badge.className = remain > 0 ? "membership-pill trial" : "membership-pill expired";
+      pay.classList.toggle("hidden", remain > 0);
     }
+    updateAnalyzeAvailability();
+  } catch (e) {
+    membership = {can_analyze:false, trial_remaining:0, subscription_active:false};
+    $("membershipSummary").textContent = "無法取得會員狀態：" + e.message;
+    updateAnalyzeAvailability();
+  }
+}
+
+async function loadCloudSession() {
+  if (!authToken) {
+    showLoginForm();
+    return false;
   }
 
-  showLoginForm();
-  return false;
+  try {
+    currentUser = await cloudApi("/auth/me");
+    showApp();
+    await refreshMembership();
+    return true;
+  } catch (_) {
+    authToken = "";
+    currentUser = null;
+    localStorage.removeItem("serviceConflictCloudToken");
+    showLoginForm();
+    return false;
+  }
 }
 
 async function bootstrapAuthFlow() {
@@ -200,113 +275,141 @@ async function bootstrapAuthFlow() {
   connectorOnline = true;
   setConnectorState(true, health.version || "");
 
-  if (!health.auth || !versionAtLeast(health.version, MIN_CONNECTOR_VERSION)) {
+  if (!versionAtLeast(health.version, MIN_CONNECTOR_VERSION)) {
     showConnectorStep("outdated", health.version || "");
     return false;
   }
 
   showConnectorStep("ready", health.version || "");
-
-  // 新版 Connector 直接在 /health 回傳帳號是否已設定，
-  // 不再卡在「連線器已就緒」等待第二個狀態請求。
-  if (typeof health.configured === "boolean") {
-    applyAuthConfiguredState(health.configured);
-
-    if (authToken) {
-      try {
-        currentUser = await api("/auth/me", {}, 2500);
-        showApp();
-        return true;
-      } catch (_) {
-        authToken = "";
-        sessionStorage.removeItem("serviceConflictToken");
-      }
-    }
-
-    showLoginForm();
-    return false;
-  }
-
-  try {
-    return await loadAuthMode();
-  } catch (e) {
-    let message = e.message || "登入功能異常";
-    if (message.includes("404")) {
-      showConnectorStep("outdated", health.version || "");
-    } else {
-      showLoginForm();
-      $("authMessage").textContent = "驗證功能異常：" + message;
-    }
-    return false;
-  }
+  return await loadCloudSession();
 }
 
 async function submitAuth() {
-  const username = $("authUsername").value.trim();
+  const email = $("authEmail").value.trim().toLowerCase();
   const password = $("authPassword").value;
   const confirm = $("authPasswordConfirm").value;
-
   $("authMessage").textContent = "";
 
-  if (!username || !password) {
-    $("authMessage").textContent = "請輸入帳號及密碼";
+  if (!email || !password) {
+    $("authMessage").textContent = "請輸入 Email 及密碼";
     return;
   }
 
-  if (setupMode && password !== confirm) {
-    $("authMessage").textContent = "兩次輸入的密碼不一致";
+  if (authMode === "register") {
+    if (password.length < 8) {
+      $("authMessage").textContent = "密碼至少需要 8 個字元";
+      return;
+    }
+    if (password !== confirm) {
+      $("authMessage").textContent = "兩次輸入的密碼不一致";
+      return;
+    }
+
+    $("btnAuthSubmit").disabled = true;
+    $("btnAuthSubmit").textContent = "正在建立帳號…";
+    try {
+      const data = await cloudApi("/auth/register", {
+        method:"POST",
+        body:JSON.stringify({email, password})
+      });
+      $("authMessage").textContent = data.message || "驗證信已寄出，請到信箱完成驗證後再登入。";
+      $("btnResendVerification").classList.remove("hidden");
+    } catch (e) {
+      $("authMessage").textContent = e.message;
+    } finally {
+      $("btnAuthSubmit").disabled = false;
+      $("btnAuthSubmit").textContent = "註冊並寄送驗證信";
+    }
     return;
   }
 
   $("btnAuthSubmit").disabled = true;
-  const originalButtonText = $("btnAuthSubmit").textContent;
-  $("btnAuthSubmit").textContent = setupMode ? "正在建立管理者…" : "登入中…";
-  $("authMessage").textContent = setupMode ? "正在建立管理者帳號，請稍候…" : "正在驗證帳號，請稍候…";
-
+  $("btnAuthSubmit").textContent = "登入中…";
   try {
-    const path = setupMode ? "/auth/setup" : "/auth/login";
-    const data = await api(path, {
+    const data = await cloudApi("/auth/login", {
       method:"POST",
-      body:JSON.stringify({username, password})
+      body:JSON.stringify({email, password})
     }, 15000);
 
     authToken = data.token;
     currentUser = data.user;
-    sessionStorage.setItem("serviceConflictToken", authToken);
-    $("authMessage").textContent = "";
+    localStorage.setItem("serviceConflictCloudToken", authToken);
     showApp();
     await ping(false);
     await refreshStatuses();
+    await refreshMembership();
   } catch (e) {
-    if (e.code === "ALREADY_CONFIGURED" || e.status === 409) {
-      setupMode = false;
-      $("authTitle").textContent = "帳號登入";
-      $("authSubtitle").textContent = "管理者帳號已建立，請使用帳號密碼登入";
-      $("btnAuthSubmit").textContent = "登入";
-      $("authPasswordConfirmWrap").classList.add("hidden");
-      $("authMessage").textContent = e.message || "管理者帳號已建立，請改用登入。";
-    } else {
-      $("authMessage").textContent = e.message || "操作失敗";
+    $("authMessage").textContent = e.message;
+    if (e.code === "EMAIL_NOT_VERIFIED") {
+      $("btnResendVerification").classList.remove("hidden");
     }
   } finally {
     $("btnAuthSubmit").disabled = false;
-    $("btnAuthSubmit").textContent = setupMode ? "建立管理者帳號" : "登入";
+    $("btnAuthSubmit").textContent = "登入";
+  }
+}
+
+async function resendVerification() {
+  const email = $("authEmail").value.trim().toLowerCase();
+  if (!email) {
+    $("authMessage").textContent = "請先輸入 Email";
+    return;
+  }
+  try {
+    const data = await cloudApi("/auth/resend-verification", {
+      method:"POST",
+      body:JSON.stringify({email})
+    });
+    $("authMessage").textContent = data.message || "驗證信已重新寄出。";
+  } catch (e) {
+    $("authMessage").textContent = e.message;
   }
 }
 
 async function logout() {
   try {
-    if (authToken) {
-      await api("/auth/logout", {method:"POST", body:"{}"}, 2500);
-    }
+    if (authToken) await cloudApi("/auth/logout", {method:"POST", body:"{}"});
   } catch (_) {}
 
   authToken = "";
   currentUser = null;
-  sessionStorage.removeItem("serviceConflictToken");
+  membership = {can_analyze:false, trial_remaining:0, subscription_active:false};
+  localStorage.removeItem("serviceConflictCloudToken");
   $("authPassword").value = "";
   $("authPasswordConfirm").value = "";
-  await loadAuthMode();
+  showLoginForm();
+}
+
+async function startPayment() {
+  if (!authToken) return;
+  $("btnPay").disabled = true;
+  $("btnPay").textContent = "建立付款單…";
+  try {
+    const data = await cloudApi("/billing/ecpay/create", {
+      method:"POST",
+      body:"{}"
+    }, 15000);
+
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = data.action;
+    form.style.display = "none";
+
+    Object.entries(data.params || {}).forEach(([key, value]) => {
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = key;
+      input.value = String(value);
+      form.appendChild(input);
+    });
+
+    document.body.appendChild(form);
+    form.submit();
+  } catch (e) {
+    alert("付款頁建立失敗：" + e.message);
+    $("btnPay").disabled = false;
+    $("btnPay").textContent = "前往綠界付款";
+  }
 }
 
 async function ping(silent=false) {
@@ -637,58 +740,86 @@ function updateAnalysisMode() {
 async function analyze() {
   if (!(await ping(true))) return;
 
-  await refreshStatuses();
+  await refreshMembership();
+  if (!membership.can_analyze) {
+    alert("免費試用已使用完畢，請先完成付款。");
+    return;
+  }
 
   if (!lcmsLoggedIn) {
-    $('summary').textContent = '請先登入照管';
-    $('results').innerHTML = '<div class="conflict"><strong>無法開始分析</strong><br>照管為必要資料來源，請先登入照管並確認狀態為「已登入」。</div>';
-    log('分析已停止：照管尚未登入');
+    alert("請先登入照管，並確認照管狀態為「已登入」。");
     return;
   }
 
-  const source = $("sourceExcel").checked ? "excel" : "compal";
-  if (source === "compal" && !compalLoggedIn) {
-    $('summary').textContent = '請先登入仁寶';
-    $('results').innerHTML = '<div class="conflict"><strong>仁寶來源尚未就緒</strong><br>目前選擇「使用仁寶」，請先登入仁寶或改選「上傳個案名單」。</div>';
-    log('分析已停止：已選仁寶來源，但仁寶尚未登入');
-    return;
-  }
+  const sourceMode = $("sourceExcel").checked ? "excel" : "compal";
 
-  if (source === "excel" && !uploadedCaseNames.length) {
-    $('summary').textContent = '請先上傳個案名單';
-    $('results').innerHTML = '<div class="conflict"><strong>尚未載入個案名單</strong><br>目前選擇「上傳個案名單」，請先選擇 Excel、CSV 或 TXT 檔案。</div>';
-    log('分析已停止：尚未上傳個案名單');
+  if (sourceMode === "compal") {
+    const compal = await api("/status/compal", {}, 12000).catch(e => ({
+      logged_in:false,
+      message:e.message
+    }));
+    compalLoggedIn = Boolean(compal.logged_in);
+    $("compalStatus").textContent = compalLoggedIn ? "✓ 已登入" : "✕ 尚未登入";
+    if (!compalLoggedIn) {
+      alert("目前選擇「使用仁寶」，請先登入仁寶後再進行分析。");
+      return;
+    }
+  } else if (!uploadedCaseNames.length) {
+    alert("目前選擇「上傳個案名單」，請先上傳個案名單。");
     return;
   }
 
   const monthly = $("modeMonth").checked;
   const payload = monthly
-    ? {mode:"month", month:$("monthInput").value, source, case_names: source === "excel" ? uploadedCaseNames : []}
-    : {mode:"day", date:$("dateInput").value, source, case_names: source === "excel" ? uploadedCaseNames : []};
+    ? {mode:"month", month:$("monthInput").value, source:sourceMode, case_names:uploadedCaseNames}
+    : {mode:"day", date:$("dateInput").value, source:sourceMode, case_names:uploadedCaseNames};
 
   if ((monthly && !payload.month) || (!monthly && !payload.date)) {
     $("summary").textContent = monthly ? "請先選擇月份" : "請先選擇日期";
     return;
   }
 
+  let permitToken = "";
   try {
-    const targetText = source === "compal"
-      ? "（使用仁寶個案來源）"
-      : "（使用已上傳的 " + uploadedCaseNames.length + " 位個案）";
-    $('summary').textContent = monthly
-      ? '正在查詢整月份照管服務紀錄 ' + targetText + '，資料較多請稍候…'
-      : '正在查詢照管服務紀錄 ' + targetText + '…';
-    $('results').innerHTML = '';
-    const data = await api('/services', {method:'POST', body: JSON.stringify(payload)}, monthly ? 600000 : 180000);
-    log('照管 QD120A：取得 ' + data.rows.length + ' 筆服務資料');
-    if (data.stats && data.stats.source_cases != null) {
-      log('個案來源：' + (source === 'compal' ? '仁寶' : 'Excel') + '，比對 ' + data.stats.source_cases + ' 位個案');
-    }
+    const permit = await cloudApi("/usage/begin", {method:"POST", body:"{}"});
+    permitToken = permit.permit_token;
+
+    const targetText = sourceMode === "compal"
+      ? "（個案來源：仁寶）"
+      : "（個案來源：已上傳 " + uploadedCaseNames.length + " 位個案）";
+
+    $("summary").textContent = monthly
+      ? "正在查詢整月份照管服務紀錄 " + targetText + "，資料較多請稍候…"
+      : "正在查詢照管服務紀錄 " + targetText + "…";
+    $("results").innerHTML = "";
+
+    const data = await api(
+      "/services",
+      {method:"POST", body:JSON.stringify(payload)},
+      monthly ? 600000 : 180000
+    );
+
+    await cloudApi("/usage/complete", {
+      method:"POST",
+      body:JSON.stringify({permit_token:permitToken, success:true})
+    });
+
+    log("照管 QD120A：取得 " + data.rows.length + " 筆服務資料");
     renderServerAnalysis(data);
+    await refreshMembership();
   } catch(e) {
-    $('summary').textContent = '抓取失敗';
-    $('results').innerHTML = '<div class="conflict"><strong>抓取失敗</strong><br>' + e.message + '</div>';
-    log('分析失敗：' + e.message);
+    if (permitToken) {
+      try {
+        await cloudApi("/usage/complete", {
+          method:"POST",
+          body:JSON.stringify({permit_token:permitToken, success:false})
+        });
+      } catch (_) {}
+    }
+    $("summary").textContent = "抓取失敗";
+    $("results").innerHTML = '<div class="conflict"><strong>抓取失敗</strong><br>' + e.message + '</div>';
+    log("分析失敗：" + e.message);
+    await refreshMembership();
   }
 }
 
@@ -731,6 +862,9 @@ updateAnalysisMode();
 updateSourceMode();
 
 $("btnAuthSubmit").onclick = submitAuth;
+$("btnModeLogin").onclick = ()=>setAuthMode("login");
+$("btnModeRegister").onclick = ()=>setAuthMode("register");
+$("btnResendVerification").onclick = resendVerification;
 $("authPassword").addEventListener("keydown", e => {
   if (e.key === "Enter") submitAuth();
 });
@@ -739,7 +873,9 @@ $("authPasswordConfirm").addEventListener("keydown", e => {
 });
 $("btnAuthRetryConnector").onclick = bootstrapAuthFlow;
 $("btnLogout").onclick = logout;
+$("btnPay").onclick = startPayment;
 $("btnAdmin").onclick = ()=>{ window.location.href = "./admin.html"; };
+setAuthMode("login");
 
 setConnectorState(false);
 bootstrapAuthFlow().then(async loggedIn => {
@@ -757,7 +893,7 @@ setInterval(async ()=>{
       if (health.auth) {
         connectorOnline = true;
         setConnectorState(true, health.version || "");
-        await loadAuthMode();
+        await loadCloudSession();
       }
     } catch (_) {}
     return;

@@ -1,0 +1,80 @@
+name: Build Windows Connector
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "connector.py"
+      - "requirements.txt"
+      - "ServiceConflictConnector.spec"
+      - "version_info.txt"
+      - ".github/workflows/build-connector.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller
+
+      - name: Verify dependencies
+        shell: pwsh
+        run: |
+          python -c "import requests, flask, flask_cors, tkinter, websocket, openpyxl; print('Dependencies OK')"
+
+      - name: Build EXE
+        shell: pwsh
+        run: |
+          pyinstaller --clean --noconfirm ServiceConflictConnector.spec
+
+      - name: Test EXE exists
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/ServiceConflictConnector.exe")) {
+            throw "Connector EXE was not created."
+          }
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ServiceConflictConnector
+          path: dist/ServiceConflictConnector.exe
+
+      - name: Publish rolling release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          gh release view connector-latest *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create connector-latest --title "Service Conflict Connector Latest" --notes "Windows 服務衝突連線器 v0.5.6。已接入照管 QD120A 真實服務紀錄與自動登入狀態偵測。" --latest
+          }
+
+          $maxAttempts = 3
+          for ($i = 1; $i -le $maxAttempts; $i++) {
+            gh release upload connector-latest dist/ServiceConflictConnector.exe --clobber
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($i -eq $maxAttempts) { throw "Release upload failed after $maxAttempts attempts." }
+            Start-Sleep -Seconds 10
+          }

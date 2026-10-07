@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>服務衝突檢查系統</title>
   <link rel="stylesheet" href="./style.css">
+  <script src="./config.js"></script>
 </head>
 <body>
 <section id="authScreen" class="auth-screen">
@@ -15,43 +16,45 @@
 
       <div class="auth-status-row">
         <div>
-          <h1 id="connectorStepTitle">正在檢查連線器</h1>
+          <h1 id="connectorStepTitle">正在檢查資料啟動器</h1>
           <p id="connectorStepText" class="muted">請稍候…</p>
         </div>
         <div id="authConnectorBadge" class="badge wait">檢查中</div>
       </div>
 
       <div id="connectorDownloadBox" class="connector-download-box hidden">
-        <p>第一次使用請先下載並開啟 Windows 連線器。</p>
+        <p>第一次使用請先下載並開啟 Windows 資料啟動器。</p>
         <div class="install-actions">
           <a class="download-btn"
              href="https://github.com/BiuBiuSmile/service-conflict-web-starter/releases/latest/download/ServiceConflictConnector.exe">
-            下載 Windows 連線器
+            下載 Windows 資料啟動器
           </a>
           <button id="btnAuthRetryConnector">重新檢查</button>
-        </div>
-        <div class="install-help">
-          下載後開啟連線器，本頁會自動進入登入畫面。
         </div>
       </div>
     </div>
   </div>
 
   <div id="loginPage" class="auth-page hidden">
-    <div class="auth-card">
+    <div class="auth-card auth-card-wide">
       <div class="auth-brand">服務衝突檢查系統</div>
 
-      <h1 id="authTitle">帳號登入</h1>
-      <p id="authSubtitle" class="muted">請輸入帳號及密碼</p>
+      <div class="auth-mode-tabs">
+        <button id="btnModeLogin" class="auth-mode-tab active" type="button">登入</button>
+        <button id="btnModeRegister" class="auth-mode-tab" type="button">註冊</button>
+      </div>
+
+      <h1 id="authTitle">Email 登入</h1>
+      <p id="authSubtitle" class="muted">請使用已完成信箱驗證的帳號登入</p>
 
       <label class="auth-label">
-        帳號
-        <input id="authUsername" type="text" autocomplete="username" placeholder="請輸入帳號">
+        Email
+        <input id="authEmail" type="email" autocomplete="email" placeholder="name@example.com">
       </label>
 
       <label class="auth-label">
         密碼
-        <input id="authPassword" type="password" autocomplete="current-password" placeholder="請輸入密碼">
+        <input id="authPassword" type="password" autocomplete="current-password" placeholder="至少 8 個字元">
       </label>
 
       <div id="authPasswordConfirmWrap" class="hidden">
@@ -62,7 +65,13 @@
       </div>
 
       <button id="btnAuthSubmit" class="primary auth-submit">登入</button>
+      <button id="btnResendVerification" class="ghost auth-secondary hidden" type="button">重新寄送驗證信</button>
       <div id="authMessage" class="auth-message"></div>
+
+      <div class="trial-note">
+        <strong>新帳號可免費分析 3 次</strong>
+        <span>第 4 次起需完成付費才能繼續使用。</span>
+      </div>
     </div>
   </div>
 
@@ -96,6 +105,18 @@
     <div class="install-help">
       <strong>第一次開啟：</strong>
       Windows 若顯示 SmartScreen，可按「其他資訊」→「仍要執行」。正式發布後建議再加入程式碼簽章。
+    </div>
+  </section>
+
+  <section id="membershipPanel" class="membership-card">
+    <div>
+      <div class="card-kicker">MEMBERSHIP</div>
+      <h2>使用方案</h2>
+      <div id="membershipSummary" class="membership-summary">正在讀取會員狀態…</div>
+    </div>
+    <div class="membership-actions">
+      <div id="trialBadge" class="membership-pill">免費試用：讀取中</div>
+      <button id="btnPay" class="primary compact hidden" type="button">前往綠界付款</button>
     </div>
   </section>
 
