@@ -68,7 +68,7 @@ jobs:
 
           gh release view connector-latest *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create connector-latest --title "Service Conflict Connector Latest" --notes "Windows 服務衝突連線器 v0.5.6。已接入照管 QD120A 真實服務紀錄與自動登入狀態偵測。" --latest
+            gh release create connector-latest --title "Service Conflict Connector Latest" --notes "Windows 服務衝突連線器 v0.6.0。支援會員授權、照管 QD120A、仁寶／Excel 個案來源與衝突分析。" --latest
           }
 
           $maxAttempts = 3
