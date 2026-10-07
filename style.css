@@ -825,3 +825,22 @@ button.primary.compact{
   transform:none;
   opacity:.72;
 }
+
+
+/* 管理者付款紀錄 */
+.payment-admin-note{margin:4px 0 0}
+.payment-summary-bar{margin-top:16px}
+.payment-table{min-width:1120px}
+.payment-time-cell{white-space:nowrap;color:#536a84}
+.payment-order-cell{display:flex;align-items:center;gap:8px;min-width:230px}
+.payment-order-cell code,.payment-table code{
+  padding:5px 7px;border-radius:7px;background:#f3f6fa;color:#35506e;
+  border:1px solid #e0e7ef;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px
+}
+.copy-order-btn{padding:6px 8px;font-size:11px;border-radius:8px}
+.payment-status-badge{
+  display:inline-flex;padding:6px 9px;border-radius:999px;font-size:12px;font-weight:800;white-space:nowrap
+}
+.payment-status-badge.paid{color:#2f7552;background:#e8f7ef;border:1px solid #cde8d8}
+.payment-status-badge.pending{color:#8a6730;background:#fff5df;border:1px solid #f2dfb5}
+.payment-empty{text-align:center;color:#8190a3;padding:24px !important}
