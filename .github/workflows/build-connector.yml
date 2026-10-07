@@ -39,7 +39,7 @@ jobs:
       - name: Verify dependencies
         shell: pwsh
         run: |
-          python -c "import requests, flask, flask_cors, tkinter, websocket; print('Dependencies OK')"
+          python -c "import requests, flask, flask_cors, tkinter, websocket, openpyxl; print('Dependencies OK')"
 
       - name: Build EXE
         shell: pwsh
@@ -68,7 +68,7 @@ jobs:
 
           gh release view connector-latest *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create connector-latest --title "Service Conflict Connector Latest" --notes "Windows 服務衝突連線器 v0.5.5。已接入照管 QD120A 真實服務紀錄與自動登入狀態偵測。" --latest
+            gh release create connector-latest --title "Service Conflict Connector Latest" --notes "Windows 服務衝突連線器 v0.5.6。已接入照管 QD120A 真實服務紀錄與自動登入狀態偵測。" --latest
           }
 
           $maxAttempts = 3
