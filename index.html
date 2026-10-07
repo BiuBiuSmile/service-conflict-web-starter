@@ -105,17 +105,6 @@
 
       <div class="status-row">
         <div>
-          <strong>仁寶</strong>
-          <div id="compalStatus" class="muted">尚未檢查</div>
-        </div>
-        <div class="btn-group">
-          <button id="btnOpenCompal">登入仁寶</button>
-          <button id="btnCompal">檢查狀態</button>
-        </div>
-      </div>
-
-      <div class="status-row">
-        <div>
           <strong>照管</strong>
           <div id="lcmsStatus" class="muted">尚未檢查</div>
         </div>
@@ -123,6 +112,24 @@
           <button id="btnOpenLcms">登入照管</button>
           <button id="btnLcms">檢查狀態</button>
         </div>
+      </div>
+
+      <div class="case-list-upload">
+        <div class="case-list-head">
+          <div>
+            <strong>個案名單</strong>
+            <div id="caseListStatus" class="muted">尚未上傳，預設查詢照管全部個案</div>
+          </div>
+          <button id="btnClearCaseList" class="ghost hidden" type="button">清除名單</button>
+        </div>
+
+        <label class="upload-box" for="caseListInput">
+          <input id="caseListInput" type="file" accept=".xlsx,.xlsm,.csv,.txt">
+          <span class="upload-title">選擇個案名單</span>
+          <span class="muted">支援 Excel、CSV、TXT；第一欄放個案姓名即可</span>
+        </label>
+
+        <div id="caseListPreview" class="case-list-preview hidden"></div>
       </div>
     </article>
 
