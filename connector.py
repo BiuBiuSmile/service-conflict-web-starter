@@ -24,7 +24,7 @@ from flask_cors import CORS
 VERSION = "0.6.0"
 PORT = 8765
 WEBSITE_URL = "https://biubiusmile.github.io/service-conflict-web-starter/"
-CENTRAL_API_BASE = os.environ.get("SERVICE_CONFLICT_API_BASE", "http://127.0.0.1:5001").rstrip("/")
+CENTRAL_API_BASE = os.environ.get("SERVICE_CONFLICT_API_BASE", "https://central-api-production-b739.up.railway.app").rstrip("/")
 
 app = Flask(__name__)
 
