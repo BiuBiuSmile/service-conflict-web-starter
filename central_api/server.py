@@ -639,6 +639,7 @@ def create_payment():
         "TradeDesc": "ServiceConflict",
         "ItemName": f"服務衝突檢查系統 {PLAN_DAYS} 天使用方案",
         "ReturnURL": f"{API_PUBLIC_URL}/billing/ecpay/return",
+        "OrderResultURL": f"{API_PUBLIC_URL}/billing/ecpay/result",
         "ClientBackURL": FRONTEND_URL + "/?payment=returned",
         "ChoosePayment": "ALL",
         "EncryptType": "1",
@@ -647,43 +648,74 @@ def create_payment():
     params["CheckMacValue"] = ecpay_check_mac(params)
     return jsonify(action=ECPAY_ACTION, params=params, merchant_trade_no=trade_no)
 
-@app.post("/billing/ecpay/return")
-def ecpay_return():
-    params = {k:v for k,v in request.form.items()}
+def process_ecpay_payment(params):
     received = params.get("CheckMacValue", "")
-    try:
-        expected = ecpay_check_mac(params)
-    except Exception:
-        return "0|ERROR", 400
+    expected = ecpay_check_mac(params)
     if not secrets.compare_digest(received.upper(), expected.upper()):
-        return "0|ERROR", 400
+        raise ValueError("CheckMacValue 驗證失敗")
+
     trade_no = params.get("MerchantTradeNo", "")
     rtn_code = str(params.get("RtnCode", ""))
     con = db()
     payment = con.execute("SELECT * FROM payments WHERE merchant_trade_no=?", (trade_no,)).fetchone()
     if not payment:
         con.close()
-        return "1|OK"
+        return {"ok": True, "found": False, "paid": False}
+
     con.execute(
         "UPDATE payments SET payload=?, trade_no=? WHERE merchant_trade_no=?",
         (json.dumps(params, ensure_ascii=False), params.get("TradeNo", ""), trade_no)
     )
-    if rtn_code == "1" and payment["status"] != "paid":
-        user = con.execute("SELECT * FROM users WHERE id=?", (payment["user_id"],)).fetchone()
-        base = now_utc()
-        if user["subscription_until"]:
-            try:
-                current_until = datetime.fromisoformat(user["subscription_until"])
-                if current_until > base:
-                    base = current_until
-            except Exception:
-                pass
-        new_until = base + timedelta(days=PLAN_DAYS)
-        con.execute("UPDATE payments SET status='paid', paid_at=? WHERE merchant_trade_no=?", (iso(now_utc()), trade_no))
-        con.execute("UPDATE users SET subscription_until=? WHERE id=?", (iso(new_until), payment["user_id"]))
+
+    paid = False
+    if rtn_code == "1":
+        paid = True
+        if payment["status"] != "paid":
+            user = con.execute("SELECT * FROM users WHERE id=?", (payment["user_id"],)).fetchone()
+            base = now_utc()
+            if user["subscription_until"]:
+                try:
+                    current_until = datetime.fromisoformat(user["subscription_until"])
+                    if current_until > base:
+                        base = current_until
+                except Exception:
+                    pass
+            new_until = base + timedelta(days=PLAN_DAYS)
+            con.execute(
+                "UPDATE payments SET status='paid', paid_at=? WHERE merchant_trade_no=?",
+                (iso(now_utc()), trade_no)
+            )
+            con.execute(
+                "UPDATE users SET subscription_until=? WHERE id=?",
+                (iso(new_until), payment["user_id"])
+            )
+
     con.commit()
     con.close()
+    return {"ok": True, "found": True, "paid": paid, "merchant_trade_no": trade_no}
+
+
+@app.post("/billing/ecpay/return")
+def ecpay_return():
+    params = {k:v for k,v in request.form.items()}
+    try:
+        process_ecpay_payment(params)
+    except Exception as exc:
+        print(f"[ECPAY RETURN ERROR] {type(exc).__name__}: {exc}", flush=True)
+        return "0|ERROR", 400
     return "1|OK"
+
+
+@app.post("/billing/ecpay/result")
+def ecpay_result():
+    params = {k:v for k,v in request.form.items()}
+    try:
+        result = process_ecpay_payment(params)
+        suffix = "?payment=success" if result.get("paid") else "?payment=failed"
+        return redirect(FRONTEND_URL + "/" + suffix)
+    except Exception as exc:
+        print(f"[ECPAY RESULT ERROR] {type(exc).__name__}: {exc}", flush=True)
+        return redirect(FRONTEND_URL + "/?payment=failed")
 
 @app.get("/admin/payments")
 @require_admin
