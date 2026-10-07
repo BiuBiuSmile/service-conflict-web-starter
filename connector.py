@@ -20,7 +20,7 @@ import websocket
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-VERSION = "0.5.4"
+VERSION = "0.5.5"
 PORT = 8765
 WEBSITE_URL = "https://biubiusmile.github.io/service-conflict-web-starter/"
 
@@ -796,13 +796,15 @@ def fetch_all_lcms_cases(session):
 def to_roc_encoded_date(d):
     return f"{d.year - 1911}%2F{d.month:02d}%2F{d.day:02d}"
 
-def query_qd120_rows(session, case_id, selected_date):
+def query_qd120_rows(session, case_id, start_date, end_date=None):
     base_url = LCMS_QD120_URL.format(case_id=case_id)
-    roc_date = to_roc_encoded_date(selected_date)
+    end_date = end_date or start_date
+    roc_start = to_roc_encoded_date(start_date)
+    roc_end = to_roc_encoded_date(end_date)
     url0 = (
         base_url
-        .replace("servDt1=&", f"servDt1={roc_date}&")
-        .replace("servDt2=&", f"servDt2={roc_date}&")
+        .replace("servDt1=&", f"servDt1={roc_start}&")
+        .replace("servDt2=&", f"servDt2={roc_end}&")
     )
 
     all_rows = []
@@ -1051,13 +1053,26 @@ def demo():
 @require_auth
 def services():
     payload = request.get_json(silent=True) or {}
-    raw_date = payload.get("date") or str(date.today())
+    mode = str(payload.get("mode") or "day").strip().lower()
 
     try:
-        selected = datetime.strptime(raw_date, "%Y-%m-%d").date()
+        if mode == "month":
+            raw_month = str(payload.get("month") or "").strip()
+            month_start = datetime.strptime(raw_month, "%Y-%m").date().replace(day=1)
+            if month_start.month == 12:
+                next_month = month_start.replace(year=month_start.year + 1, month=1)
+            else:
+                next_month = month_start.replace(month=month_start.month + 1)
+            selected_start = month_start
+            selected_end = next_month - timedelta(days=1)
+        else:
+            raw_date = payload.get("date") or str(date.today())
+            selected_start = datetime.strptime(raw_date, "%Y-%m-%d").date()
+            selected_end = selected_start
+            mode = "day"
     except Exception:
         return jsonify(
-            error="日期格式錯誤",
+            error="日期或月份格式錯誤",
             stage="date",
         ), 400
 
@@ -1069,7 +1084,6 @@ def services():
                 stage="login",
             ), 409
 
-        # Session 只保留給相容介面；實際 LCMS 查詢改由 Chrome 同源 fetch 執行。
         session = build_cdp_session("lcms")
 
         try:
@@ -1088,7 +1102,8 @@ def services():
                 qd_rows = query_qd120_rows(
                     session,
                     info["id"],
-                    selected,
+                    selected_start,
+                    selected_end,
                 )
 
                 for row in qd_rows:
@@ -1118,6 +1133,9 @@ def services():
 
         stats["cases_scanned"] = len(cases)
         stats["case_query_failures"] = len(failures)
+        stats["range_mode"] = mode
+        stats["range_start"] = selected_start.isoformat()
+        stats["range_end"] = selected_end.isoformat()
 
         public_rows = [
             {
@@ -1137,7 +1155,6 @@ def services():
         )
 
     except Exception as e:
-        # 最外層保護：永遠回傳 JSON 錯誤，不再讓前端看到 Flask HTML 500。
         return jsonify(
             error=f"Connector 執行失敗：{type(e).__name__}: {e}",
             stage="unexpected",
