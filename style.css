@@ -616,3 +616,189 @@ button.primary.compact{
   .plan-meta{grid-template-columns:1fr}
   .plan-topline{align-items:flex-start}
 }
+
+
+/* 管理者後台 v2 */
+.admin-summary-bar{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:12px;
+  margin:14px 0 16px;
+}
+.admin-summary-item{
+  padding:14px 16px;
+  border:1px solid #dce7f2;
+  border-radius:14px;
+  background:linear-gradient(180deg,#fbfdff 0%,#f4f8fd 100%);
+}
+.admin-summary-label{
+  display:block;
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.08em;
+  color:#8393a8;
+  margin-bottom:4px;
+}
+.admin-summary-item strong{
+  font-size:22px;
+  color:#2f4b6d;
+}
+.admin-table-wrap{
+  border-radius:15px;
+  box-shadow:0 8px 20px rgba(59,83,113,.05);
+}
+.admin-table{
+  min-width:1080px;
+}
+.admin-table th{
+  padding:14px 12px;
+  font-size:12px;
+  letter-spacing:.04em;
+  color:#62758e;
+  background:#f5f8fc;
+}
+.admin-table td{
+  padding:14px 12px;
+  vertical-align:middle;
+}
+.admin-email-cell{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:220px;
+}
+.admin-user-avatar{
+  width:36px;
+  height:36px;
+  flex:0 0 36px;
+  border-radius:11px;
+  display:grid;
+  place-items:center;
+  font-weight:900;
+  color:#3f638e;
+  background:#e8f1fb;
+  border:1px solid #d6e4f2;
+}
+.admin-row-sub{
+  margin-top:2px;
+  font-size:11px;
+  color:#93a0b2;
+}
+.admin-status-badge,
+.admin-role-badge,
+.admin-account-badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  white-space:nowrap;
+  padding:6px 9px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:800;
+}
+.admin-status-badge.verified{
+  color:#2f7552;
+  background:#e8f7ef;
+  border:1px solid #cde8d8;
+}
+.admin-status-badge.pending{
+  color:#8a6730;
+  background:#fff5df;
+  border:1px solid #f2dfb5;
+}
+.admin-role-badge.admin{
+  color:#4e5f93;
+  background:#eef0fb;
+  border:1px solid #dadeef;
+}
+.admin-role-badge.user{
+  color:#5f7188;
+  background:#f2f5f8;
+  border:1px solid #e0e6ec;
+}
+.admin-account-badge.enabled{
+  color:#2f7552;
+  background:#eaf7f0;
+  border:1px solid #d0e9db;
+}
+.admin-account-badge.disabled{
+  color:#a34e49;
+  background:#fff0ef;
+  border:1px solid #f0d6d3;
+}
+.trial-progress{
+  min-width:112px;
+}
+.trial-progress-top{
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:6px;
+  font-size:12px;
+  font-weight:800;
+  color:#4e6480;
+}
+.trial-progress-top .trial-active{color:#3f6e9e}
+.trial-progress-top .trial-used{color:#a34e49}
+.trial-progress-track{
+  height:6px;
+  overflow:hidden;
+  border-radius:999px;
+  background:#e9eef5;
+}
+.trial-progress-fill{
+  height:100%;
+  border-radius:999px;
+  background:linear-gradient(90deg,#84a6cc,#5f82ae);
+}
+.admin-date-cell{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  min-width:150px;
+}
+.admin-date-cell strong{
+  font-size:13px;
+  color:#314d6d;
+  white-space:nowrap;
+}
+.admin-date-cell span{
+  font-size:11px;
+  color:#8b99aa;
+}
+.admin-action-group{
+  display:flex;
+  flex-wrap:wrap;
+  gap:7px;
+  min-width:250px;
+}
+.admin-action-btn{
+  padding:8px 10px;
+  border-radius:9px;
+  font-size:12px;
+  background:#fff;
+  border:1px solid #cfdbea;
+}
+.admin-action-btn.primary-soft{
+  color:#3f6796;
+  background:#eef5fd;
+  border-color:#d5e4f4;
+}
+.admin-action-btn.danger-soft{
+  color:#9d504b;
+  background:#fff4f3;
+  border-color:#efd7d4;
+}
+.admin-action-btn.success-soft{
+  color:#347253;
+  background:#eef8f3;
+  border-color:#d4eadd;
+}
+#btnRefreshUsers{
+  background:#f7faff;
+  border-color:#cbd9e8;
+}
+@media(max-width:760px){
+  .admin-summary-bar{grid-template-columns:1fr}
+  .admin-summary-item{padding:12px 14px}
+}
