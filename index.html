@@ -128,10 +128,33 @@
 
     <article class="card">
       <h2>衝突分析</h2>
-      <label>
-        日期
-        <input id="dateInput" type="date">
-      </label>
+
+      <div class="analysis-mode">
+        <label class="mode-option">
+          <input id="modeDay" type="radio" name="analysisMode" value="day" checked>
+          <span>單日分析</span>
+        </label>
+        <label class="mode-option">
+          <input id="modeMonth" type="radio" name="analysisMode" value="month">
+          <span>整月分析</span>
+        </label>
+      </div>
+
+      <div id="dayAnalysisFields">
+        <label>
+          日期
+          <input id="dateInput" type="date">
+        </label>
+      </div>
+
+      <div id="monthAnalysisFields" class="hidden">
+        <label>
+          月份
+          <input id="monthInput" type="month">
+        </label>
+      </div>
+
+      <div id="analysisRangeHint" class="muted analysis-range-hint"></div>
       <button id="btnAnalyze" class="primary">開始抓取並分析</button>
     </article>
   </section>
