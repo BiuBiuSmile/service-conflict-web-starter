@@ -29,6 +29,7 @@ SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 SMTP_FROM = os.environ.get("SMTP_FROM", SMTP_USER or "no-reply@example.com")
+SMTP_FROM_NAME = os.environ.get("SMTP_FROM_NAME", "服務衝突檢查系統")
 SMTP_STARTTLS = os.environ.get("SMTP_STARTTLS", "1") == "1"
 
 ECPAY_MODE = os.environ.get("ECPAY_MODE", "stage").lower()
@@ -190,34 +191,74 @@ def require_admin(fn):
 
 def send_verification(email, token):
     link = f"{API_PUBLIC_URL}/auth/verify?token={token}"
+
     if MAIL_MODE != "smtp":
-        print(f"[EMAIL VERIFY] {email}: {link}", flush=True)
-        return
+        print(f"[EMAIL VERIFY - MAIL DISABLED] {email}: {link}", flush=True)
+        raise RuntimeError("目前驗證信寄送功能尚未啟用，請聯絡管理者")
+
+    missing = []
+    if not SMTP_HOST:
+        missing.append("SMTP_HOST")
+    if not SMTP_USER:
+        missing.append("SMTP_USER")
+    if not SMTP_PASSWORD:
+        missing.append("SMTP_PASSWORD")
+    if not SMTP_FROM:
+        missing.append("SMTP_FROM")
+    if missing:
+        print("[EMAIL ERROR] Missing SMTP settings: " + ", ".join(missing), flush=True)
+        raise RuntimeError("驗證信寄送服務尚未完成設定，請聯絡管理者")
+
     msg = EmailMessage()
-    msg["Subject"] = "服務衝突檢查系統｜Email 驗證"
-    msg["From"] = SMTP_FROM
+    msg["Subject"] = "服務衝突檢查系統｜請完成 Email 驗證"
+    msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_FROM}>"
     msg["To"] = email
     msg.set_content(
-        "您好，\n\n請點擊以下連結完成 Email 驗證：\n"
-        f"{link}\n\n此連結 {VERIFY_MINUTES} 分鐘內有效。\n"
+        "您好：\n\n"
+        "感謝您註冊服務衝突檢查系統。\n"
+        "請點擊下方連結完成 Email 驗證：\n\n"
+        f"{link}\n\n"
+        f"此驗證連結將於 {VERIFY_MINUTES} 分鐘後失效。\n"
+        "若不是您本人申請帳號，請忽略此信件。\n"
     )
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as smtp:
-        if SMTP_STARTTLS:
-            smtp.starttls()
-        if SMTP_USER:
+
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as smtp:
+            smtp.ehlo()
+            if SMTP_STARTTLS:
+                smtp.starttls()
+                smtp.ehlo()
             smtp.login(SMTP_USER, SMTP_PASSWORD)
-        smtp.send_message(msg)
+            smtp.send_message(msg)
+        print(f"[EMAIL SENT] verification -> {email}", flush=True)
+    except smtplib.SMTPAuthenticationError:
+        print("[EMAIL ERROR] SMTP authentication failed", flush=True)
+        raise RuntimeError("驗證信寄送失敗：寄件信箱驗證失敗，請聯絡管理者")
+    except Exception as exc:
+        print(f"[EMAIL ERROR] {type(exc).__name__}: {exc}", flush=True)
+        raise RuntimeError("驗證信寄送失敗，請稍後再試或聯絡管理者")
 
 def create_verification(con, user_id, email):
     token = secrets.token_urlsafe(32)
     expires = now_utc() + timedelta(minutes=VERIFY_MINUTES)
-    con.execute("UPDATE email_verifications SET used=1 WHERE user_id=? AND used=0", (user_id,))
     con.execute(
         "INSERT INTO email_verifications(token,user_id,expires_at,used,created_at) VALUES(?,?,?,?,?)",
         (token, user_id, iso(expires), 0, iso(now_utc()))
     )
     con.commit()
-    send_verification(email, token)
+
+    try:
+        send_verification(email, token)
+    except Exception:
+        con.execute("DELETE FROM email_verifications WHERE token=?", (token,))
+        con.commit()
+        raise
+
+    con.execute(
+        "UPDATE email_verifications SET used=1 WHERE user_id=? AND token<>? AND used=0",
+        (user_id, token)
+    )
+    con.commit()
 
 def ecpay_urlencode(value):
     return quote_plus(value, safe="-_.!*()").lower()
@@ -236,7 +277,7 @@ def health():
 
 @app.get("/public/config")
 def public_config():
-    return jsonify(trial_limit=TRIAL_LIMIT, plan_days=PLAN_DAYS, plan_price=PLAN_PRICE, ecpay_mode=ECPAY_MODE)
+    return jsonify(trial_limit=TRIAL_LIMIT, plan_days=PLAN_DAYS, plan_price=PLAN_PRICE, ecpay_mode=ECPAY_MODE, mail_enabled=(MAIL_MODE == "smtp" and bool(SMTP_HOST and SMTP_USER and SMTP_PASSWORD and SMTP_FROM)))
 
 @app.post("/auth/register")
 def register():
@@ -253,7 +294,11 @@ def register():
         if existing["email_verified"]:
             con.close()
             return jsonify(error="此 Email 已註冊，請直接登入"), 409
-        create_verification(con, existing["id"], email)
+        try:
+            create_verification(con, existing["id"], email)
+        except RuntimeError as exc:
+            con.close()
+            return jsonify(error=str(exc), code="EMAIL_SEND_FAILED"), 503
         con.close()
         return jsonify(ok=True, message="帳號尚未驗證，已重新寄送驗證信。")
     cur = con.execute(
@@ -262,7 +307,11 @@ def register():
         (email, generate_password_hash(password), 0, "user", 1, 0, iso(now_utc()))
     )
     con.commit()
-    create_verification(con, cur.lastrowid, email)
+    try:
+        create_verification(con, cur.lastrowid, email)
+    except RuntimeError as exc:
+        con.close()
+        return jsonify(error=str(exc), code="EMAIL_SEND_FAILED"), 503
     con.close()
     return jsonify(ok=True, message="註冊成功，驗證信已寄出。請先完成 Email 驗證。")
 
@@ -278,7 +327,11 @@ def resend_verification():
     if row["email_verified"]:
         con.close()
         return jsonify(ok=True, message="此 Email 已完成驗證，可以直接登入。")
-    create_verification(con, row["id"], email)
+    try:
+        create_verification(con, row["id"], email)
+    except RuntimeError as exc:
+        con.close()
+        return jsonify(error=str(exc), code="EMAIL_SEND_FAILED"), 503
     con.close()
     return jsonify(ok=True, message="驗證信已重新寄出。")
 
