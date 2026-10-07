@@ -32,6 +32,19 @@ function log(msg, key="") {
   $("log").scrollTop = $("log").scrollHeight;
 }
 
+function updateAnalyzeAvailability() {
+  const button = $("btnAnalyze");
+  if (!button) return;
+
+  const canAnalyze = connectorOnline && lcmsLoggedIn;
+  button.disabled = !canAnalyze;
+  button.title = canAnalyze
+    ? "照管已登入，可以開始分析"
+    : "請先登入照管，並確認狀態為已登入";
+
+  button.setAttribute("aria-disabled", canAnalyze ? "false" : "true");
+}
+
 function setConnectorState(ok, version="") {
   connectorOnline = ok;
   const badge = $("connectorBadge");
@@ -47,9 +60,15 @@ function setConnectorState(ok, version="") {
     panel.classList.remove("hidden");
   }
 
-  ["btnOpenLcms","btnLcms","btnOpenCompal","btnCompal","btnAnalyze"].forEach(id => {
+  ["btnOpenLcms","btnLcms","btnOpenCompal","btnCompal"].forEach(id => {
     $(id).disabled = !ok;
   });
+
+  if (!ok) {
+    lcmsLoggedIn = false;
+    compalLoggedIn = false;
+  }
+  updateAnalyzeAvailability();
 }
 
 async function api(path, options={}, timeoutMs=2500) {
@@ -323,7 +342,12 @@ async function refreshStatuses() {
     const requiredBadge = $('requiredLcmsBadge');
     requiredBadge.textContent = lcmsLoggedIn ? '照管已就緒' : '照管必須登入';
     requiredBadge.className = lcmsLoggedIn ? 'mini-badge ready' : 'mini-badge required';
-  } catch (_) {}
+
+    updateAnalyzeAvailability();
+  } catch (_) {
+    lcmsLoggedIn = false;
+    updateAnalyzeAvailability();
+  }
 }
 
 async function uploadCaseList(file) {
@@ -498,6 +522,10 @@ async function openLogin(system) {
   const target = system === "compal" ? $("compalStatus") : $("lcmsStatus");
   try {
     target.textContent = "正在開啟官方登入頁…";
+    if (system === "lcms") {
+      lcmsLoggedIn = false;
+      updateAnalyzeAvailability();
+    }
     const data = await api(`/connect/${system}`, {method:"POST", body:"{}"});
     target.textContent = "請在官方 Chrome 頁面完成登入";
     log(`${label}：${data.message}`);
@@ -515,9 +543,28 @@ async function checkLogin(system) {
     target.textContent = "檢查中…";
     const data = await api(`/status/${system}`);
     target.textContent = data.logged_in ? "✓ 已登入" : "✕ 尚未登入";
+
+    if (system === "lcms") {
+      lcmsLoggedIn = Boolean(data.logged_in);
+      const requiredBadge = $("requiredLcmsBadge");
+      if (requiredBadge) {
+        requiredBadge.textContent = lcmsLoggedIn ? "照管已就緒" : "照管必須登入";
+        requiredBadge.className = lcmsLoggedIn ? "mini-badge ready" : "mini-badge required";
+      }
+      updateAnalyzeAvailability();
+    } else {
+      compalLoggedIn = Boolean(data.logged_in);
+    }
+
     log(`${label}：${data.message}`);
   } catch(e) {
     target.textContent = "檢查失敗";
+    if (system === "lcms") {
+      lcmsLoggedIn = false;
+      updateAnalyzeAvailability();
+    } else {
+      compalLoggedIn = false;
+    }
     log(`${label}檢查失敗：${e.message}`);
   }
 }

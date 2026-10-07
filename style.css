@@ -402,3 +402,19 @@ pre{background:#16243a;color:#d5e2f1;border:1px solid #263a56}
   .connection-item{grid-template-columns:38px 1fr}.connection-item .btn-group{grid-column:1/-1;justify-content:flex-end}
   .source-options{grid-template-columns:1fr}
 }
+
+
+/* 照管未登入時，分析按鈕保持鎖定 */
+#btnAnalyze:disabled{
+  background:#c9d6e8 !important;
+  border-color:#c9d6e8 !important;
+  color:#ffffff !important;
+  opacity:1;
+  cursor:not-allowed;
+  box-shadow:none;
+}
+#btnAnalyze:not(:disabled){
+  background:linear-gradient(135deg,#7898c4 0%,#5f7fae 100%);
+  border-color:#6d8db9;
+  box-shadow:0 8px 18px rgba(95,127,174,.18);
+}
