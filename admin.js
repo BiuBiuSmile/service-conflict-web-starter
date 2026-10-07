@@ -112,6 +112,9 @@ async function loadUsers() {
             </button>
             <button class="admin-action-btn" data-action="trial" data-id="${u.id}">重設試用</button>
             <button class="admin-action-btn primary-soft" data-action="days" data-id="${u.id}">加會員天數</button>
+            ${currentUser && String(currentUser.email).toLowerCase() === String(u.email).toLowerCase()
+              ? '<button class="admin-action-btn delete-user disabled" type="button" disabled title="不可刪除目前登入中的管理者帳號">刪除</button>'
+              : '<button class="admin-action-btn delete-user" data-action="delete" data-id="' + u.id + '" data-email="' + esc(u.email) + '">刪除</button>'}
           </div>
         </td>
       </tr>
@@ -139,6 +142,15 @@ async function loadUsers() {
             method:"PATCH",
             body:JSON.stringify({subscription_days:days})
           });
+        } else if (btn.dataset.action === "delete") {
+          const email = btn.dataset.email || "這個使用者";
+          const ok = confirm(
+            "確定要刪除使用者？\n\n" +
+            email +
+            "\n\n刪除後將一併移除此帳號的登入資料、驗證資料、試用紀錄與付款紀錄，且無法復原。"
+          );
+          if (!ok) return;
+          await api("/admin/users/" + id, {method:"DELETE"});
         }
         await loadUsers();
       } catch (e) {
