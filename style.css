@@ -315,3 +315,90 @@ pre{white-space:pre-wrap;background:#0f172a;color:#cbd5e1;border-radius:12px;pad
   font-size:13px;
   line-height:1.6;
 }
+
+
+/* ===== Warm blue refresh ===== */
+:root{
+  --wb-bg:#f5f8fc;
+  --wb-surface:#ffffff;
+  --wb-surface-soft:#f8fbff;
+  --wb-primary:#587aa8;
+  --wb-primary-deep:#3f628f;
+  --wb-primary-soft:#eaf2fb;
+  --wb-border:#d9e4f0;
+  --wb-border-strong:#bfd0e4;
+  --wb-text:#1f3046;
+  --wb-muted:#6f8095;
+  --wb-good-bg:#e9f7ef;
+  --wb-good:#2f7552;
+  --wb-danger-bg:#fff0ef;
+  --wb-danger:#a34e49;
+  --wb-shadow:0 10px 30px rgba(56,82,116,.08);
+}
+body{
+  color:var(--wb-text);
+  background:
+    radial-gradient(circle at 10% 0%, rgba(189,214,240,.34), transparent 31%),
+    linear-gradient(180deg,#f8fbff 0%,var(--wb-bg) 100%);
+  min-height:100vh;
+}
+.wrap{max-width:1160px;padding:30px 28px 44px}
+.hero{padding:8px 4px 2px}
+.hero h1{color:#20334b;letter-spacing:.01em}
+.eyebrow,.card-kicker{color:#7890ad;font-weight:800;letter-spacing:.14em}
+.card-kicker{font-size:11px;margin-bottom:5px}
+.card,.install-card,.auth-card{
+  border:1px solid var(--wb-border);
+  box-shadow:var(--wb-shadow);
+  background:rgba(255,255,255,.96);
+}
+.card{border-radius:20px;padding:22px}
+.grid{gap:20px}
+.card-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.card-title-row h2{margin-bottom:0}
+.connection-list{margin-top:12px;border:1px solid #e6edf5;border-radius:16px;overflow:hidden;background:#fbfdff}
+.connection-item{display:grid;grid-template-columns:42px 1fr auto;align-items:center;gap:12px;padding:15px 14px;border-bottom:1px solid #e8eef5}
+.connection-item:last-child{border-bottom:0}
+.connection-icon{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:#dfeafa;color:#365d8d;font-weight:900}
+.connection-icon.secondary{background:#edf1f8;color:#5d708a}
+.connection-copy strong{font-size:16px}
+button,.download-btn{border-color:var(--wb-border-strong);color:#29415f;background:#fff;border-radius:11px;transition:.18s ease}
+button:hover,.download-btn:hover{border-color:#8ca9c9;transform:translateY(-1px);box-shadow:0 5px 14px rgba(66,94,130,.09)}
+button.primary,.download-btn{background:linear-gradient(180deg,#6789b5 0%,#5578a6 100%);border-color:#5578a6;color:#fff}
+button.ghost{background:#f7faff}
+.badge.good,.mini-badge.ready{background:var(--wb-good-bg);color:var(--wb-good)}
+.badge.bad{background:var(--wb-danger-bg);color:var(--wb-danger)}
+.badge.wait{background:#fff5df;color:#8d6b32}
+.mini-badge{padding:7px 10px;border-radius:999px;font-size:12px;font-weight:800;white-space:nowrap}
+.mini-badge.required{background:#edf3fb;color:#52739b;border:1px solid #d9e5f2}
+.source-picker{margin-top:18px;padding-top:18px;border-top:1px solid #e8eef5}
+.source-picker-title{font-weight:800;margin-bottom:10px;color:#344b68}
+.source-options{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.source-option{position:relative;display:block;cursor:pointer}
+.source-option input{position:absolute;opacity:0;pointer-events:none}
+.source-option-body{display:flex;flex-direction:column;gap:3px;min-height:74px;padding:14px;border:1px solid var(--wb-border);border-radius:14px;background:#fbfdff;transition:.18s ease}
+.source-option-body strong{color:#304966}
+.source-option-body small{color:var(--wb-muted);line-height:1.45}
+.source-option input:checked + .source-option-body{border-color:#86a8cd;background:#edf5ff;box-shadow:0 0 0 3px rgba(117,157,202,.10)}
+.source-option input:checked + .source-option-body strong{color:#365f91}
+.case-list-upload{border-top:0;margin-top:12px;padding:14px;border:1px solid #dfe8f2;border-radius:14px;background:#f9fcff}
+.upload-box{border-color:#b9cce1;background:#f8fbff}
+.upload-box:hover{border-color:#7398c3;background:#eef6ff}
+.upload-title{color:#4c75a5}
+.analysis-mode{background:#f5f8fc;padding:5px;border-radius:13px}
+.mode-option{border:0;background:transparent;border-radius:10px;justify-content:center;color:#60758d}
+.mode-option:has(input:checked){background:#fff;color:#426b9c;box-shadow:0 3px 10px rgba(62,91,128,.10);border:0}
+input{border-color:#cddae8;background:#fbfdff;color:#263d5a}
+input:focus{outline:none;border-color:#779cc6;box-shadow:0 0 0 3px rgba(112,153,199,.12)}
+.summary{background:#f4f8fd;border:1px solid #e1eaf4;color:#425b77}
+.issue-table-wrap{border-color:#dce6f0}
+.issue-table th{background:#f3f7fc;color:#425a75}
+.issue-table tbody tr:hover{background:#f8fbff}
+.issue-badge{background:#fff0ef;color:#9c4a48}
+pre{background:#16243a;color:#d5e2f1;border:1px solid #263a56}
+.auth-screen{background:linear-gradient(145deg,#edf4fc,#f9fbfe)}
+.connector-download-box{background:#f0f6fd;border-color:#cbdced}
+@media(max-width:760px){
+  .connection-item{grid-template-columns:38px 1fr}.connection-item .btn-group{grid-column:1/-1;justify-content:flex-end}
+  .source-options{grid-template-columns:1fr}
+}

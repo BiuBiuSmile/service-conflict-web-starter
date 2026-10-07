@@ -100,25 +100,66 @@
   </section>
 
   <section class="grid">
-    <article class="card">
-      <h2>資料連線</h2>
-
-      <div class="status-row">
+    <article class="card connection-card">
+      <div class="card-title-row">
         <div>
-          <strong>照管</strong>
-          <div id="lcmsStatus" class="muted">尚未檢查</div>
+          <div class="card-kicker">DATA SOURCE</div>
+          <h2>資料連線</h2>
         </div>
-        <div class="btn-group">
-          <button id="btnOpenLcms">登入照管</button>
-          <button id="btnLcms">檢查狀態</button>
+        <div id="requiredLcmsBadge" class="mini-badge required">照管必須登入</div>
+      </div>
+
+      <div class="connection-list">
+        <div class="connection-item">
+          <div class="connection-icon">照</div>
+          <div class="connection-copy">
+            <strong>照管</strong>
+            <div id="lcmsStatus" class="muted">尚未檢查</div>
+          </div>
+          <div class="btn-group">
+            <button id="btnOpenLcms">登入照管</button>
+            <button id="btnLcms">檢查狀態</button>
+          </div>
+        </div>
+
+        <div class="connection-item">
+          <div class="connection-icon secondary">仁</div>
+          <div class="connection-copy">
+            <strong>仁寶</strong>
+            <div id="compalStatus" class="muted">尚未檢查</div>
+          </div>
+          <div class="btn-group">
+            <button id="btnOpenCompal">登入仁寶</button>
+            <button id="btnCompal">檢查狀態</button>
+          </div>
         </div>
       </div>
 
-      <div class="case-list-upload">
+      <div class="source-picker">
+        <div class="source-picker-title">選擇個案來源</div>
+        <div class="source-options">
+          <label class="source-option">
+            <input id="sourceCompal" type="radio" name="caseSource" value="compal" checked>
+            <span class="source-option-body">
+              <strong>使用仁寶</strong>
+              <small>從已登入的仁寶頁面自動比對個案</small>
+            </span>
+          </label>
+          <label class="source-option">
+            <input id="sourceExcel" type="radio" name="caseSource" value="excel">
+            <span class="source-option-body">
+              <strong>上傳個案名單</strong>
+              <small>Excel、CSV 或 TXT 第一欄放姓名</small>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <div id="excelSourcePanel" class="case-list-upload hidden">
         <div class="case-list-head">
           <div>
             <strong>個案名單</strong>
-            <div id="caseListStatus" class="muted">尚未上傳，預設查詢照管全部個案</div>
+            <div id="caseListStatus" class="muted">尚未上傳個案名單</div>
           </div>
           <button id="btnClearCaseList" class="ghost hidden" type="button">清除名單</button>
         </div>
@@ -133,7 +174,8 @@
       </div>
     </article>
 
-    <article class="card">
+    <article class="card analysis-card">
+      <div class="card-kicker">CONFLICT CHECK</div>
       <h2>衝突分析</h2>
 
       <div class="analysis-mode">

@@ -1,5 +1,5 @@
 const CONNECTOR = "http://127.0.0.1:8765";
-const MIN_CONNECTOR_VERSION = "0.5.6";
+const MIN_CONNECTOR_VERSION = "0.5.7";
 const $ = (id) => document.getElementById(id);
 
 let connectorOnline = false;
@@ -8,6 +8,8 @@ let authToken = sessionStorage.getItem("serviceConflictToken") || "";
 let currentUser = null;
 let setupMode = false;
 let uploadedCaseNames = [];
+let lcmsLoggedIn = false;
+let compalLoggedIn = false;
 
 function versionAtLeast(current, required) {
   const a = String(current || "0").split(".").map(n => parseInt(n, 10) || 0);
@@ -45,7 +47,7 @@ function setConnectorState(ok, version="") {
     panel.classList.remove("hidden");
   }
 
-  ["btnOpenLcms","btnLcms","btnAnalyze"].forEach(id => {
+  ["btnOpenLcms","btnLcms","btnOpenCompal","btnCompal","btnAnalyze"].forEach(id => {
     $(id).disabled = !ok;
   });
 }
@@ -305,10 +307,22 @@ async function ping(silent=false) {
 async function refreshStatuses() {
   if (!connectorOnline) return;
   try {
-    const lcms = await api('/status/lcms', {}, 12000)
-      .catch(e => ({logged_in:false,message:e.message}));
-    $('lcmsStatus').textContent = lcms.logged_in ? '✓ 已登入' : '✕ 尚未登入';
+    const [lcms, compal] = await Promise.all([
+      api('/status/lcms', {}, 12000).catch(e => ({logged_in:false,message:e.message})),
+      api('/status/compal', {}, 12000).catch(e => ({logged_in:false,message:e.message}))
+    ]);
+
+    lcmsLoggedIn = Boolean(lcms.logged_in);
+    compalLoggedIn = Boolean(compal.logged_in);
+
+    $('lcmsStatus').textContent = lcmsLoggedIn ? '✓ 已登入' : '✕ 尚未登入';
+    $('compalStatus').textContent = compalLoggedIn ? '✓ 已登入' : '✕ 尚未登入';
     $('lcmsStatus').title = lcms.message || '';
+    $('compalStatus').title = compal.message || '';
+
+    const requiredBadge = $('requiredLcmsBadge');
+    requiredBadge.textContent = lcmsLoggedIn ? '照管已就緒' : '照管必須登入';
+    requiredBadge.className = lcmsLoggedIn ? 'mini-badge ready' : 'mini-badge required';
   } catch (_) {}
 }
 
@@ -368,10 +382,15 @@ async function uploadCaseList(file) {
 function clearCaseList() {
   uploadedCaseNames = [];
   $("caseListInput").value = "";
-  $("caseListStatus").textContent = "尚未上傳，預設查詢照管全部個案";
+  $("caseListStatus").textContent = "尚未上傳個案名單";
   $("caseListPreview").textContent = "";
   $("caseListPreview").classList.add("hidden");
   $("btnClearCaseList").classList.add("hidden");
+}
+
+function updateSourceMode() {
+  const useExcel = $("sourceExcel").checked;
+  $("excelSourcePanel").classList.toggle("hidden", !useExcel);
 }
 
 function renderServerAnalysis(data) {
@@ -571,10 +590,34 @@ function updateAnalysisMode() {
 async function analyze() {
   if (!(await ping(true))) return;
 
+  await refreshStatuses();
+
+  if (!lcmsLoggedIn) {
+    $('summary').textContent = '請先登入照管';
+    $('results').innerHTML = '<div class="conflict"><strong>無法開始分析</strong><br>照管為必要資料來源，請先登入照管並確認狀態為「已登入」。</div>';
+    log('分析已停止：照管尚未登入');
+    return;
+  }
+
+  const source = $("sourceExcel").checked ? "excel" : "compal";
+  if (source === "compal" && !compalLoggedIn) {
+    $('summary').textContent = '請先登入仁寶';
+    $('results').innerHTML = '<div class="conflict"><strong>仁寶來源尚未就緒</strong><br>目前選擇「使用仁寶」，請先登入仁寶或改選「上傳個案名單」。</div>';
+    log('分析已停止：已選仁寶來源，但仁寶尚未登入');
+    return;
+  }
+
+  if (source === "excel" && !uploadedCaseNames.length) {
+    $('summary').textContent = '請先上傳個案名單';
+    $('results').innerHTML = '<div class="conflict"><strong>尚未載入個案名單</strong><br>目前選擇「上傳個案名單」，請先選擇 Excel、CSV 或 TXT 檔案。</div>';
+    log('分析已停止：尚未上傳個案名單');
+    return;
+  }
+
   const monthly = $("modeMonth").checked;
   const payload = monthly
-    ? {mode:"month", month:$("monthInput").value, case_names:uploadedCaseNames}
-    : {mode:"day", date:$("dateInput").value, case_names:uploadedCaseNames};
+    ? {mode:"month", month:$("monthInput").value, source, case_names: source === "excel" ? uploadedCaseNames : []}
+    : {mode:"day", date:$("dateInput").value, source, case_names: source === "excel" ? uploadedCaseNames : []};
 
   if ((monthly && !payload.month) || (!monthly && !payload.date)) {
     $("summary").textContent = monthly ? "請先選擇月份" : "請先選擇日期";
@@ -582,15 +625,18 @@ async function analyze() {
   }
 
   try {
-    const targetText = uploadedCaseNames.length
-      ? "（僅查詢已上傳的 " + uploadedCaseNames.length + " 位個案）"
-      : "（查詢照管全部個案）";
+    const targetText = source === "compal"
+      ? "（使用仁寶個案來源）"
+      : "（使用已上傳的 " + uploadedCaseNames.length + " 位個案）";
     $('summary').textContent = monthly
       ? '正在查詢整月份照管服務紀錄 ' + targetText + '，資料較多請稍候…'
       : '正在查詢照管服務紀錄 ' + targetText + '…';
     $('results').innerHTML = '';
     const data = await api('/services', {method:'POST', body: JSON.stringify(payload)}, monthly ? 600000 : 180000);
     log('照管 QD120A：取得 ' + data.rows.length + ' 筆服務資料');
+    if (data.stats && data.stats.source_cases != null) {
+      log('個案來源：' + (source === 'compal' ? '仁寶' : 'Excel') + '，比對 ' + data.stats.source_cases + ' 位個案');
+    }
     renderServerAnalysis(data);
   } catch(e) {
     $('summary').textContent = '抓取失敗';
@@ -601,6 +647,10 @@ async function analyze() {
 
 $("btnOpenLcms").onclick = ()=>openLogin("lcms");
 $("btnLcms").onclick = ()=>checkLogin("lcms");
+$("btnOpenCompal").onclick = ()=>openLogin("compal");
+$("btnCompal").onclick = ()=>checkLogin("compal");
+$("sourceCompal").addEventListener("change", updateSourceMode);
+$("sourceExcel").addEventListener("change", updateSourceMode);
 $("caseListInput").addEventListener("change", e => {
   const file = e.target.files && e.target.files[0];
   if (file) uploadCaseList(file);
@@ -631,6 +681,7 @@ $("modeMonth").addEventListener("change", updateAnalysisMode);
 $("dateInput").addEventListener("change", updateAnalysisMode);
 $("monthInput").addEventListener("change", updateAnalysisMode);
 updateAnalysisMode();
+updateSourceMode();
 
 $("btnAuthSubmit").onclick = submitAuth;
 $("authPassword").addEventListener("keydown", e => {

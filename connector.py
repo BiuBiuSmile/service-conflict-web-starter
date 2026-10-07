@@ -21,7 +21,7 @@ from openpyxl import load_workbook
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-VERSION = "0.5.6"
+VERSION = "0.5.7"
 PORT = 8765
 WEBSITE_URL = "https://biubiusmile.github.io/service-conflict-web-starter/"
 
@@ -1055,6 +1055,76 @@ def parse_case_list():
 
     return jsonify(ok=True, names=names, count=len(names))
 
+def compal_page_corpus():
+    page = _system_page("compal")
+    if not page or not page.get("webSocketDebuggerUrl"):
+        raise RuntimeError("仁寶官方頁面尚未開啟。")
+
+    expression = r"""
+    (() => {
+      const chunks = [];
+      const add = (v) => {
+        if (typeof v !== 'string') return;
+        v = v.trim();
+        if (!v) return;
+        chunks.push(v.slice(0, 200000));
+      };
+
+      try { add(document.body ? document.body.innerText : ''); } catch (_) {}
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          add(k || '');
+          add(localStorage.getItem(k) || '');
+        }
+      } catch (_) {}
+      try {
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const k = sessionStorage.key(i);
+          add(k || '');
+          add(sessionStorage.getItem(k) || '');
+        }
+      } catch (_) {}
+
+      return chunks.join('\n').slice(0, 1500000);
+    })()
+    """
+
+    result = _cdp_call(
+        page["webSocketDebuggerUrl"],
+        "Runtime.evaluate",
+        {"expression": expression, "returnByValue": True},
+        call_id=306,
+        timeout=30,
+    )
+    value = result.get("result", {}).get("value")
+    return str(value or "")
+
+
+def filter_cases_from_compal(lcms_cases):
+    status = browser_status("compal")
+    if not status.get("logged_in"):
+        raise RuntimeError("仁寶尚未登入，請先完成仁寶登入。")
+
+    corpus = normalize_case_name(compal_page_corpus())
+    if not corpus:
+        raise RuntimeError("仁寶目前頁面沒有可供比對的資料。")
+
+    matched = []
+    for info in lcms_cases:
+        name = normalize_case_name(info.get("name"))
+        if name and name in corpus:
+            matched.append(info)
+
+    if not matched:
+        raise RuntimeError(
+            "目前仁寶頁面未偵測到可與照管比對的個案姓名。"
+            "請先進入仁寶含有個案資料的頁面，或改用 Excel 個案名單。"
+        )
+
+    return matched
+
+
 @app.get("/health")
 def health():
     users = load_users()
@@ -1157,19 +1227,27 @@ def services():
         session = build_cdp_session("lcms")
 
         try:
-            cases = fetch_all_lcms_cases(session)
-
+            all_cases = fetch_all_lcms_cases(session)
+            source = str(payload.get("source") or "excel").strip().lower()
             requested_case_names = payload.get("case_names") or []
             requested_case_names = [
                 normalize_case_name(x)
                 for x in requested_case_names
                 if normalize_case_name(x)
             ]
-
             unmatched_case_names = []
-            if requested_case_names:
+
+            if source == "compal":
+                cases = filter_cases_from_compal(all_cases)
+            elif source == "excel":
+                if not requested_case_names:
+                    return jsonify(
+                        error="目前選擇 Excel 個案名單，但尚未載入任何個案姓名。",
+                        stage="source",
+                    ), 400
+
                 by_name = {}
-                for info in cases:
+                for info in all_cases:
                     key = normalize_case_name(info.get("name"))
                     by_name.setdefault(key, []).append(info)
 
@@ -1185,10 +1263,12 @@ def services():
                             continue
                         seen_case_ids.add(info["id"])
                         selected_cases.append(info)
-
                 cases = selected_cases
             else:
-                unmatched_case_names = []
+                return jsonify(
+                    error="未知的個案來源，請重新選擇仁寶或 Excel。",
+                    stage="source",
+                ), 400
         except Exception as e:
             return jsonify(
                 error=f"取得照管個案清單失敗：{type(e).__name__}: {e}",
@@ -1236,6 +1316,8 @@ def services():
         stats["case_query_failures"] = len(failures)
         stats["requested_cases"] = len(requested_case_names)
         stats["unmatched_cases"] = len(unmatched_case_names)
+        stats["source"] = source
+        stats["source_cases"] = len(cases)
         stats["range_mode"] = mode
         stats["range_start"] = selected_start.isoformat()
         stats["range_end"] = selected_end.isoformat()
