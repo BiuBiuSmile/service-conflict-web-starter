@@ -307,7 +307,8 @@ async function refreshMembership() {
         `;
       badge.textContent = "免費剩餘 " + remain + " 次";
       badge.className = remain > 0 ? "membership-pill trial" : "membership-pill expired";
-      pay.classList.toggle("hidden", remain > 0);
+      pay.classList.remove("hidden");
+      pay.textContent = remain > 0 ? "立即升級付費方案" : "立即付款繼續使用";
     }
     updateAnalyzeAvailability();
   } catch (e) {
@@ -484,7 +485,7 @@ async function startPayment() {
   } catch (e) {
     alert("付款頁建立失敗：" + e.message);
     $("btnPay").disabled = false;
-    $("btnPay").textContent = "前往綠界付款";
+    $("btnPay").textContent = membership.trial_remaining > 0 ? "立即升級付費方案" : "立即付款繼續使用";
   }
 }
 
