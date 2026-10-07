@@ -646,6 +646,25 @@ def admin_update_user(user_id):
     con.close()
     return jsonify(ok=True)
 
+@app.delete("/admin/users/<int:user_id>")
+@require_admin
+def admin_delete_user(user_id):
+    admin = request.cloud_user
+    if int(admin["id"]) == int(user_id):
+        return jsonify(error="不可刪除目前登入中的管理者帳號"), 400
+
+    con = db()
+    row = con.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    if not row:
+        con.close()
+        return jsonify(error="找不到帳號"), 404
+
+    email = row["email"]
+    con.execute("DELETE FROM users WHERE id=?", (user_id,))
+    con.commit()
+    con.close()
+    return jsonify(ok=True, deleted_user_id=user_id, deleted_email=email)
+
 init_db()
 
 if __name__ == "__main__":
