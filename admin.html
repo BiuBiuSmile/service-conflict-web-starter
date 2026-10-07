@@ -65,6 +65,49 @@
         </table>
       </div>
     </section>
+
+    <section class="card">
+      <div class="section-head">
+        <div>
+          <div class="card-kicker">PAYMENTS</div>
+          <h2>付款紀錄</h2>
+          <p class="muted payment-admin-note">可使用「商店訂單編號」到綠界 Stage／正式後台精準搜尋訂單。</p>
+        </div>
+        <button id="btnRefreshPayments">重新整理付款</button>
+      </div>
+
+      <div class="admin-summary-bar payment-summary-bar">
+        <div class="admin-summary-item">
+          <span class="admin-summary-label">付款紀錄</span>
+          <strong id="paymentCount">0</strong>
+        </div>
+        <div class="admin-summary-item">
+          <span class="admin-summary-label">已付款</span>
+          <strong id="paymentPaidCount">0</strong>
+        </div>
+        <div class="admin-summary-item">
+          <span class="admin-summary-label">待付款／未回呼</span>
+          <strong id="paymentPendingCount">0</strong>
+        </div>
+      </div>
+
+      <div class="issue-table-wrap admin-table-wrap">
+        <table class="issue-table admin-table payment-table">
+          <thead>
+            <tr>
+              <th>建立時間</th>
+              <th>使用者</th>
+              <th>金額</th>
+              <th>商店訂單編號</th>
+              <th>綠界交易編號</th>
+              <th>付款狀態</th>
+              <th>付款時間</th>
+            </tr>
+          </thead>
+          <tbody id="paymentRows"></tbody>
+        </table>
+      </div>
+    </section>
   </div>
 </main>
 <script src="./admin.js"></script>
