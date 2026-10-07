@@ -467,6 +467,14 @@ async function startPayment() {
       body:"{}"
     }, 15000);
 
+    const tradeNo = data.merchant_trade_no || data.params?.MerchantTradeNo || "";
+    if (tradeNo) {
+      window.prompt(
+        "付款訂單已建立。\n\n訂單編號如下，建議先複製保存；按「確定」後會前往綠界付款：",
+        tradeNo
+      );
+    }
+
     const form = document.createElement("form");
     form.method = "POST";
     form.action = data.action;
