@@ -802,3 +802,26 @@ button.primary.compact{
   .admin-summary-bar{grid-template-columns:1fr}
   .admin-summary-item{padding:12px 14px}
 }
+
+
+/* 管理者刪除使用者 */
+.admin-action-btn.delete-user{
+  color:#a44742;
+  background:#fff1f0;
+  border-color:#efcfcc;
+}
+.admin-action-btn.delete-user:hover{
+  color:#8f3935;
+  background:#ffe8e6;
+  border-color:#e7b8b4;
+}
+.admin-action-btn.delete-user.disabled,
+.admin-action-btn.delete-user:disabled{
+  color:#9aa6b5;
+  background:#f3f5f7;
+  border-color:#e1e6ec;
+  cursor:not-allowed;
+  box-shadow:none;
+  transform:none;
+  opacity:.72;
+}
