@@ -8,6 +8,8 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from urllib.parse import quote_plus
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
 from flask import Flask, jsonify, request, redirect
 from flask_cors import CORS
@@ -24,6 +26,8 @@ PLAN_DAYS = int(os.environ.get("PLAN_DAYS", "30"))
 PLAN_PRICE = int(os.environ.get("PLAN_PRICE", "0"))
 
 MAIL_MODE = os.environ.get("MAIL_MODE", "console").lower()
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+RESEND_FROM = os.environ.get("RESEND_FROM", "服務衝突檢查系統 <onboarding@resend.dev>")
 SMTP_HOST = os.environ.get("SMTP_HOST", "")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER", "")
@@ -192,28 +196,8 @@ def require_admin(fn):
 def send_verification(email, token):
     link = f"{API_PUBLIC_URL}/auth/verify?token={token}"
 
-    if MAIL_MODE != "smtp":
-        print(f"[EMAIL VERIFY - MAIL DISABLED] {email}: {link}", flush=True)
-        raise RuntimeError("目前驗證信寄送功能尚未啟用，請聯絡管理者")
-
-    missing = []
-    if not SMTP_HOST:
-        missing.append("SMTP_HOST")
-    if not SMTP_USER:
-        missing.append("SMTP_USER")
-    if not SMTP_PASSWORD:
-        missing.append("SMTP_PASSWORD")
-    if not SMTP_FROM:
-        missing.append("SMTP_FROM")
-    if missing:
-        print("[EMAIL ERROR] Missing SMTP settings: " + ", ".join(missing), flush=True)
-        raise RuntimeError("驗證信寄送服務尚未完成設定，請聯絡管理者")
-
-    msg = EmailMessage()
-    msg["Subject"] = "服務衝突檢查系統｜請完成 Email 驗證"
-    msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_FROM}>"
-    msg["To"] = email
-    msg.set_content(
+    subject = "服務衝突檢查系統｜請完成 Email 驗證"
+    text_body = (
         "您好：\n\n"
         "感謝您註冊服務衝突檢查系統。\n"
         "請點擊下方連結完成 Email 驗證：\n\n"
@@ -221,22 +205,104 @@ def send_verification(email, token):
         f"此驗證連結將於 {VERIFY_MINUTES} 分鐘後失效。\n"
         "若不是您本人申請帳號，請忽略此信件。\n"
     )
+    html_body = f"""
+    <div style="font-family:Arial,'Noto Sans TC',sans-serif;max-width:560px;margin:auto;color:#24364d;line-height:1.7">
+      <div style="padding:28px;border:1px solid #dce7f2;border-radius:16px;background:#fff">
+        <div style="font-size:12px;letter-spacing:.12em;color:#7890ad;font-weight:700">SERVICE CONFLICT</div>
+        <h2 style="margin:8px 0 12px;color:#20334b">完成 Email 驗證</h2>
+        <p>您好，感謝您註冊服務衝突檢查系統。</p>
+        <p>請點擊下方按鈕完成 Email 驗證：</p>
+        <p style="margin:24px 0">
+          <a href="{link}" style="display:inline-block;padding:12px 20px;border-radius:10px;background:#5f82ae;color:#fff;text-decoration:none;font-weight:700">
+            驗證我的 Email
+          </a>
+        </p>
+        <p style="font-size:13px;color:#718196">驗證連結將於 {VERIFY_MINUTES} 分鐘後失效。</p>
+        <p style="font-size:12px;color:#94a0af">若不是您本人申請帳號，請忽略此信件。</p>
+      </div>
+    </div>
+    """
 
-    try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as smtp:
-            smtp.ehlo()
-            if SMTP_STARTTLS:
-                smtp.starttls()
+    if MAIL_MODE == "resend":
+        if not RESEND_API_KEY:
+            print("[EMAIL ERROR] Missing RESEND_API_KEY", flush=True)
+            raise RuntimeError("驗證信寄送服務尚未完成設定，請聯絡管理者")
+
+        payload = json.dumps({
+            "from": RESEND_FROM,
+            "to": [email],
+            "subject": subject,
+            "text": text_body,
+            "html": html_body,
+        }, ensure_ascii=False).encode("utf-8")
+
+        req = Request(
+            "https://api.resend.com/emails",
+            data=payload,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+                "User-Agent": "service-conflict-central-api/1.0",
+            },
+        )
+
+        try:
+            with urlopen(req, timeout=20) as response:
+                body = response.read().decode("utf-8", errors="replace")
+                if response.status < 200 or response.status >= 300:
+                    raise RuntimeError(f"Resend HTTP {response.status}: {body}")
+                print(f"[EMAIL SENT] resend verification -> {email}", flush=True)
+                return
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            print(f"[EMAIL ERROR] Resend HTTP {exc.code}: {detail}", flush=True)
+            raise RuntimeError("驗證信寄送失敗，請檢查寄信服務設定")
+        except URLError as exc:
+            print(f"[EMAIL ERROR] Resend network error: {exc}", flush=True)
+            raise RuntimeError("驗證信寄送服務暫時無法連線，請稍後再試")
+        except Exception as exc:
+            print(f"[EMAIL ERROR] Resend {type(exc).__name__}: {exc}", flush=True)
+            raise RuntimeError("驗證信寄送失敗，請稍後再試或聯絡管理者")
+
+    if MAIL_MODE == "smtp":
+        missing = []
+        if not SMTP_HOST:
+            missing.append("SMTP_HOST")
+        if not SMTP_USER:
+            missing.append("SMTP_USER")
+        if not SMTP_PASSWORD:
+            missing.append("SMTP_PASSWORD")
+        if not SMTP_FROM:
+            missing.append("SMTP_FROM")
+        if missing:
+            print("[EMAIL ERROR] Missing SMTP settings: " + ", ".join(missing), flush=True)
+            raise RuntimeError("驗證信寄送服務尚未完成設定，請聯絡管理者")
+
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_FROM}>"
+        msg["To"] = email
+        msg.set_content(text_body)
+        try:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as smtp:
                 smtp.ehlo()
-            smtp.login(SMTP_USER, SMTP_PASSWORD)
-            smtp.send_message(msg)
-        print(f"[EMAIL SENT] verification -> {email}", flush=True)
-    except smtplib.SMTPAuthenticationError:
-        print("[EMAIL ERROR] SMTP authentication failed", flush=True)
-        raise RuntimeError("驗證信寄送失敗：寄件信箱驗證失敗，請聯絡管理者")
-    except Exception as exc:
-        print(f"[EMAIL ERROR] {type(exc).__name__}: {exc}", flush=True)
-        raise RuntimeError("驗證信寄送失敗，請稍後再試或聯絡管理者")
+                if SMTP_STARTTLS:
+                    smtp.starttls()
+                    smtp.ehlo()
+                smtp.login(SMTP_USER, SMTP_PASSWORD)
+                smtp.send_message(msg)
+            print(f"[EMAIL SENT] smtp verification -> {email}", flush=True)
+            return
+        except smtplib.SMTPAuthenticationError:
+            print("[EMAIL ERROR] SMTP authentication failed", flush=True)
+            raise RuntimeError("驗證信寄送失敗：寄件信箱驗證失敗，請聯絡管理者")
+        except Exception as exc:
+            print(f"[EMAIL ERROR] SMTP {type(exc).__name__}: {exc}", flush=True)
+            raise RuntimeError("驗證信寄送失敗，請稍後再試或聯絡管理者")
+
+    print(f"[EMAIL VERIFY - MAIL DISABLED] {email}: {link}", flush=True)
+    raise RuntimeError("目前驗證信寄送功能尚未啟用，請聯絡管理者")
 
 def create_verification(con, user_id, email):
     token = secrets.token_urlsafe(32)
@@ -277,7 +343,7 @@ def health():
 
 @app.get("/public/config")
 def public_config():
-    return jsonify(trial_limit=TRIAL_LIMIT, plan_days=PLAN_DAYS, plan_price=PLAN_PRICE, ecpay_mode=ECPAY_MODE, mail_enabled=(MAIL_MODE == "smtp" and bool(SMTP_HOST and SMTP_USER and SMTP_PASSWORD and SMTP_FROM)))
+    return jsonify(trial_limit=TRIAL_LIMIT, plan_days=PLAN_DAYS, plan_price=PLAN_PRICE, ecpay_mode=ECPAY_MODE, mail_enabled=((MAIL_MODE == "resend" and bool(RESEND_API_KEY)) or (MAIL_MODE == "smtp" and bool(SMTP_HOST and SMTP_USER and SMTP_PASSWORD and SMTP_FROM))))
 
 @app.post("/auth/register")
 def register():
