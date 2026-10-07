@@ -152,9 +152,60 @@ async function loadUsers() {
           if (!ok) return;
           await api("/admin/users/" + id, {method:"DELETE"});
         }
-        await loadUsers();
+        await Promise.all([loadUsers(), loadPayments()]);
       } catch (e) {
         alert(e.message);
+      }
+    };
+  });
+}
+
+
+async function loadPayments() {
+  const data = await api("/admin/payments");
+  const payments = Array.isArray(data.payments) ? data.payments : [];
+
+  $("paymentCount").textContent = payments.length;
+  $("paymentPaidCount").textContent = payments.filter(p => p.status === "paid").length;
+  $("paymentPendingCount").textContent = payments.filter(p => p.status !== "paid").length;
+
+  $("paymentRows").innerHTML = payments.length ? payments.map(p => {
+    const paid = p.status === "paid";
+    return `
+      <tr>
+        <td class="payment-time-cell">${esc(formatAdminDate(p.created_at))}</td>
+        <td>
+          <strong>${esc(p.email || "-")}</strong>
+          <div class="admin-row-sub">User ID #${esc(p.user_id)}</div>
+        </td>
+        <td><strong>NT${esc(p.amount)}</strong></td>
+        <td>
+          <div class="payment-order-cell">
+            <code>${esc(p.merchant_trade_no)}</code>
+            <button class="copy-order-btn" type="button" data-copy-order="${esc(p.merchant_trade_no)}">複製</button>
+          </div>
+        </td>
+        <td><code>${esc(p.trade_no || "-")}</code></td>
+        <td>
+          <span class="payment-status-badge ${paid ? "paid" : "pending"}">
+            ${paid ? "已付款" : "待付款／未回呼"}
+          </span>
+        </td>
+        <td>${esc(p.paid_at ? formatAdminDate(p.paid_at) : "-")}</td>
+      </tr>
+    `;
+  }).join("") : '<tr><td colspan="7" class="payment-empty">目前尚無付款紀錄</td></tr>';
+
+  document.querySelectorAll("[data-copy-order]").forEach(btn => {
+    btn.onclick = async () => {
+      const value = btn.dataset.copyOrder || "";
+      try {
+        await navigator.clipboard.writeText(value);
+        const old = btn.textContent;
+        btn.textContent = "已複製";
+        setTimeout(() => { btn.textContent = old; }, 1200);
+      } catch (_) {
+        window.prompt("請複製商店訂單編號：", value);
       }
     };
   });
@@ -174,6 +225,7 @@ async function init() {
 
 $("btnBack").onclick = ()=>{ window.location.href = "./"; };
 $("btnRefreshUsers").onclick = loadUsers;
+$("btnRefreshPayments").onclick = loadPayments;
 $("btnAdminLogout").onclick = async ()=>{
   try { await api("/auth/logout", {method:"POST", body:"{}"}); } catch (_) {}
   localStorage.removeItem("serviceConflictCloudToken");
