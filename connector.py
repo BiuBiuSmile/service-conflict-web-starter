@@ -17,10 +17,11 @@ from tkinter import messagebox
 
 import requests
 import websocket
+from openpyxl import load_workbook
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-VERSION = "0.5.5"
+VERSION = "0.5.6"
 PORT = 8765
 WEBSITE_URL = "https://biubiusmile.github.io/service-conflict-web-starter/"
 
@@ -985,6 +986,75 @@ def analyze_services(rows):
     }
 
 
+def normalize_case_name(value):
+    text = str(value or "").strip()
+    text = re.sub(r"\s+", "", text)
+    return text
+
+def parse_case_list_file(file_storage):
+    filename = str(file_storage.filename or "").lower()
+    raw = file_storage.read()
+
+    names = []
+
+    if filename.endswith((".xlsx", ".xlsm")):
+        from io import BytesIO
+        wb = load_workbook(BytesIO(raw), read_only=True, data_only=True)
+        try:
+            ws = wb.worksheets[0]
+            for row in ws.iter_rows(min_col=1, max_col=1, values_only=True):
+                name = normalize_case_name(row[0] if row else "")
+                if name and name not in ("姓名", "個案姓名", "個案"):
+                    names.append(name)
+        finally:
+            wb.close()
+
+    elif filename.endswith((".csv", ".txt")):
+        text = None
+        for enc in ("utf-8-sig", "utf-8", "cp950", "big5"):
+            try:
+                text = raw.decode(enc)
+                break
+            except Exception:
+                pass
+        if text is None:
+            raise ValueError("無法辨識文字檔編碼。")
+
+        for line in text.splitlines():
+            first = line.split(",", 1)[0].split("\t", 1)[0]
+            name = normalize_case_name(first)
+            if name and name not in ("姓名", "個案姓名", "個案"):
+                names.append(name)
+    else:
+        raise ValueError("僅支援 .xlsx、.xlsm、.csv、.txt。")
+
+    result = []
+    seen = set()
+    for name in names:
+        if name in seen:
+            continue
+        seen.add(name)
+        result.append(name)
+
+    return result
+
+@app.post("/case-list/parse")
+@require_auth
+def parse_case_list():
+    file_storage = request.files.get("file")
+    if not file_storage or not file_storage.filename:
+        return jsonify(error="請選擇個案名單檔案。"), 400
+
+    try:
+        names = parse_case_list_file(file_storage)
+    except Exception as e:
+        return jsonify(error=f"名單讀取失敗：{type(e).__name__}: {e}"), 400
+
+    if not names:
+        return jsonify(error="檔案中沒有讀取到個案姓名。"), 400
+
+    return jsonify(ok=True, names=names, count=len(names))
+
 @app.get("/health")
 def health():
     users = load_users()
@@ -1088,6 +1158,37 @@ def services():
 
         try:
             cases = fetch_all_lcms_cases(session)
+
+            requested_case_names = payload.get("case_names") or []
+            requested_case_names = [
+                normalize_case_name(x)
+                for x in requested_case_names
+                if normalize_case_name(x)
+            ]
+
+            unmatched_case_names = []
+            if requested_case_names:
+                by_name = {}
+                for info in cases:
+                    key = normalize_case_name(info.get("name"))
+                    by_name.setdefault(key, []).append(info)
+
+                selected_cases = []
+                seen_case_ids = set()
+                for requested_name in requested_case_names:
+                    matches = by_name.get(requested_name, [])
+                    if not matches:
+                        unmatched_case_names.append(requested_name)
+                        continue
+                    for info in matches:
+                        if info["id"] in seen_case_ids:
+                            continue
+                        seen_case_ids.add(info["id"])
+                        selected_cases.append(info)
+
+                cases = selected_cases
+            else:
+                unmatched_case_names = []
         except Exception as e:
             return jsonify(
                 error=f"取得照管個案清單失敗：{type(e).__name__}: {e}",
@@ -1133,6 +1234,8 @@ def services():
 
         stats["cases_scanned"] = len(cases)
         stats["case_query_failures"] = len(failures)
+        stats["requested_cases"] = len(requested_case_names)
+        stats["unmatched_cases"] = len(unmatched_case_names)
         stats["range_mode"] = mode
         stats["range_start"] = selected_start.isoformat()
         stats["range_end"] = selected_end.isoformat()
@@ -1151,6 +1254,7 @@ def services():
             issues=issues,
             stats=stats,
             query_failures=failures[:20],
+            unmatched_case_names=unmatched_case_names[:100],
             source="LCMS QD120A via Chrome",
         )
 
