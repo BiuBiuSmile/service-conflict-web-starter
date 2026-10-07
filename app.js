@@ -1,5 +1,5 @@
 const CONNECTOR = "http://127.0.0.1:8765";
-const MIN_CONNECTOR_VERSION = "0.5.5";
+const MIN_CONNECTOR_VERSION = "0.5.6";
 const $ = (id) => document.getElementById(id);
 
 let connectorOnline = false;
@@ -7,6 +7,7 @@ let lastLogKey = "";
 let authToken = sessionStorage.getItem("serviceConflictToken") || "";
 let currentUser = null;
 let setupMode = false;
+let uploadedCaseNames = [];
 
 function versionAtLeast(current, required) {
   const a = String(current || "0").split(".").map(n => parseInt(n, 10) || 0);
@@ -44,7 +45,7 @@ function setConnectorState(ok, version="") {
     panel.classList.remove("hidden");
   }
 
-  ["btnOpenCompal","btnCompal","btnOpenLcms","btnLcms","btnAnalyze"].forEach(id => {
+  ["btnOpenLcms","btnLcms","btnAnalyze"].forEach(id => {
     $(id).disabled = !ok;
   });
 }
@@ -304,16 +305,73 @@ async function ping(silent=false) {
 async function refreshStatuses() {
   if (!connectorOnline) return;
   try {
-    const results = await Promise.all([
-      api('/status/compal', {}, 12000).catch(e => ({logged_in:false,message:e.message})),
-      api('/status/lcms', {}, 12000).catch(e => ({logged_in:false,message:e.message}))
-    ]);
-    const compal = results[0], lcms = results[1];
-    $('compalStatus').textContent = compal.logged_in ? '✓ 已登入' : '✕ 尚未登入';
+    const lcms = await api('/status/lcms', {}, 12000)
+      .catch(e => ({logged_in:false,message:e.message}));
     $('lcmsStatus').textContent = lcms.logged_in ? '✓ 已登入' : '✕ 尚未登入';
-    $('compalStatus').title = compal.message || '';
     $('lcmsStatus').title = lcms.message || '';
   } catch (_) {}
+}
+
+async function uploadCaseList(file) {
+  if (!(await ping(true))) return;
+
+  const form = new FormData();
+  form.append("file", file);
+
+  $("caseListStatus").textContent = "正在讀取個案名單…";
+  $("caseListPreview").classList.add("hidden");
+
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 30000);
+
+  try {
+    const res = await fetch(CONNECTOR + "/case-list/parse", {
+      method:"POST",
+      body:form,
+      signal:ctl.signal,
+      headers: authToken ? {"Authorization":"Bearer " + authToken} : {}
+    });
+
+    const raw = await res.text();
+    let data = {};
+    try { data = raw ? JSON.parse(raw) : {}; } catch (_) { data = {error:raw}; }
+
+    if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+
+    uploadedCaseNames = Array.isArray(data.names) ? data.names : [];
+    const count = uploadedCaseNames.length;
+
+    $("caseListStatus").textContent = count
+      ? "已載入 " + count + " 位個案"
+      : "名單中沒有讀取到個案姓名";
+
+    $("btnClearCaseList").classList.toggle("hidden", !count);
+
+    if (count) {
+      const preview = uploadedCaseNames.slice(0, 12).join("、");
+      $("caseListPreview").textContent =
+        preview + (count > 12 ? "……等 " + count + " 位" : "");
+      $("caseListPreview").classList.remove("hidden");
+      log("個案名單：已載入 " + count + " 位個案");
+    }
+  } catch (e) {
+    uploadedCaseNames = [];
+    $("caseListStatus").textContent = "名單讀取失敗";
+    $("btnClearCaseList").classList.add("hidden");
+    $("caseListPreview").classList.add("hidden");
+    log("個案名單讀取失敗：" + e.message);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function clearCaseList() {
+  uploadedCaseNames = [];
+  $("caseListInput").value = "";
+  $("caseListStatus").textContent = "尚未上傳，預設查詢照管全部個案";
+  $("caseListPreview").textContent = "";
+  $("caseListPreview").classList.add("hidden");
+  $("btnClearCaseList").classList.add("hidden");
 }
 
 function renderServerAnalysis(data) {
@@ -515,8 +573,8 @@ async function analyze() {
 
   const monthly = $("modeMonth").checked;
   const payload = monthly
-    ? {mode:"month", month:$("monthInput").value}
-    : {mode:"day", date:$("dateInput").value};
+    ? {mode:"month", month:$("monthInput").value, case_names:uploadedCaseNames}
+    : {mode:"day", date:$("dateInput").value, case_names:uploadedCaseNames};
 
   if ((monthly && !payload.month) || (!monthly && !payload.date)) {
     $("summary").textContent = monthly ? "請先選擇月份" : "請先選擇日期";
@@ -524,9 +582,12 @@ async function analyze() {
   }
 
   try {
+    const targetText = uploadedCaseNames.length
+      ? "（僅查詢已上傳的 " + uploadedCaseNames.length + " 位個案）"
+      : "（查詢照管全部個案）";
     $('summary').textContent = monthly
-      ? '正在查詢整月份照管個案與 QD120A 服務紀錄，資料較多請稍候…'
-      : '正在查詢照管個案與 QD120A 服務紀錄…';
+      ? '正在查詢整月份照管服務紀錄 ' + targetText + '，資料較多請稍候…'
+      : '正在查詢照管服務紀錄 ' + targetText + '…';
     $('results').innerHTML = '';
     const data = await api('/services', {method:'POST', body: JSON.stringify(payload)}, monthly ? 600000 : 180000);
     log('照管 QD120A：取得 ' + data.rows.length + ' 筆服務資料');
@@ -538,10 +599,13 @@ async function analyze() {
   }
 }
 
-$("btnOpenCompal").onclick = ()=>openLogin("compal");
-$("btnCompal").onclick = ()=>checkLogin("compal");
 $("btnOpenLcms").onclick = ()=>openLogin("lcms");
 $("btnLcms").onclick = ()=>checkLogin("lcms");
+$("caseListInput").addEventListener("change", e => {
+  const file = e.target.files && e.target.files[0];
+  if (file) uploadCaseList(file);
+});
+$("btnClearCaseList").onclick = clearCaseList;
 $("btnAnalyze").onclick = analyze;
 $("btnRetryConnector").onclick = ()=>ping(false).then(ok => { if (ok) refreshStatuses(); });
 $("btnDemo").onclick = async ()=>{
