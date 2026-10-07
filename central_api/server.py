@@ -645,7 +645,7 @@ def create_payment():
         "CustomField1": str(user["id"]),
     }
     params["CheckMacValue"] = ecpay_check_mac(params)
-    return jsonify(action=ECPAY_ACTION, params=params)
+    return jsonify(action=ECPAY_ACTION, params=params, merchant_trade_no=trade_no)
 
 @app.post("/billing/ecpay/return")
 def ecpay_return():
@@ -684,6 +684,34 @@ def ecpay_return():
     con.commit()
     con.close()
     return "1|OK"
+
+@app.get("/admin/payments")
+@require_admin
+def admin_payments():
+    con = db()
+    rows = con.execute("""
+        SELECT p.id, p.user_id, u.email, p.merchant_trade_no, p.trade_no,
+               p.amount, p.status, p.created_at, p.paid_at
+        FROM payments p
+        LEFT JOIN users u ON u.id=p.user_id
+        ORDER BY p.id DESC
+        LIMIT 200
+    """).fetchall()
+    result = []
+    for r in rows:
+        result.append({
+            "id": r["id"],
+            "user_id": r["user_id"],
+            "email": r["email"] or "",
+            "merchant_trade_no": r["merchant_trade_no"],
+            "trade_no": r["trade_no"] or "",
+            "amount": r["amount"],
+            "status": r["status"],
+            "created_at": r["created_at"],
+            "paid_at": r["paid_at"],
+        })
+    con.close()
+    return jsonify(payments=result)
 
 @app.get("/admin/users")
 @require_admin
