@@ -5,6 +5,7 @@ import secrets
 import sqlite3
 import smtplib
 import hashlib
+import base64
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from urllib.parse import quote_plus
@@ -26,6 +27,10 @@ PLAN_DAYS = int(os.environ.get("PLAN_DAYS", "30"))
 PLAN_PRICE = int(os.environ.get("PLAN_PRICE", "0"))
 
 MAIL_MODE = os.environ.get("MAIL_MODE", "console").lower()
+GMAIL_CLIENT_ID = os.environ.get("GMAIL_CLIENT_ID", "")
+GMAIL_CLIENT_SECRET = os.environ.get("GMAIL_CLIENT_SECRET", "")
+GMAIL_REFRESH_TOKEN = os.environ.get("GMAIL_REFRESH_TOKEN", "")
+GMAIL_FROM = os.environ.get("GMAIL_FROM", "")
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 RESEND_FROM = os.environ.get("RESEND_FROM", "服務衝突檢查系統 <onboarding@resend.dev>")
 SMTP_HOST = os.environ.get("SMTP_HOST", "")
@@ -193,6 +198,87 @@ def require_admin(fn):
         return fn(*args, **kwargs)
     return wrapper
 
+def gmail_access_token():
+    missing = []
+    if not GMAIL_CLIENT_ID:
+        missing.append("GMAIL_CLIENT_ID")
+    if not GMAIL_CLIENT_SECRET:
+        missing.append("GMAIL_CLIENT_SECRET")
+    if not GMAIL_REFRESH_TOKEN:
+        missing.append("GMAIL_REFRESH_TOKEN")
+    if missing:
+        print("[EMAIL ERROR] Missing Gmail API settings: " + ", ".join(missing), flush=True)
+        raise RuntimeError("驗證信寄送服務尚未完成設定，請聯絡管理者")
+
+    body = (
+        "client_id=" + quote_plus(GMAIL_CLIENT_ID) +
+        "&client_secret=" + quote_plus(GMAIL_CLIENT_SECRET) +
+        "&refresh_token=" + quote_plus(GMAIL_REFRESH_TOKEN) +
+        "&grant_type=refresh_token"
+    ).encode("utf-8")
+
+    req = Request(
+        "https://oauth2.googleapis.com/token",
+        data=body,
+        method="POST",
+        headers={"Content-Type":"application/x-www-form-urlencoded"},
+    )
+    try:
+        with urlopen(req, timeout=20) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        token = str(data.get("access_token") or "")
+        if not token:
+            raise RuntimeError("Google 未回傳 access token")
+        return token
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        print(f"[EMAIL ERROR] Google OAuth HTTP {exc.code}: {detail}", flush=True)
+        raise RuntimeError("Google 寄信授權失敗，請重新設定授權")
+    except Exception as exc:
+        print(f"[EMAIL ERROR] Google OAuth {type(exc).__name__}: {exc}", flush=True)
+        raise RuntimeError("Google 寄信授權失敗，請聯絡管理者")
+
+def gmail_send_message(to_email, subject, text_body, html_body):
+    if not GMAIL_FROM:
+        raise RuntimeError("驗證信寄送服務尚未完成設定，請聯絡管理者")
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = f"服務衝突檢查系統 <{GMAIL_FROM}>"
+    msg["To"] = to_email
+    msg.set_content(text_body)
+    msg.add_alternative(html_body, subtype="html")
+
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii").rstrip("=")
+    payload = json.dumps({"raw": raw}).encode("utf-8")
+    access_token = gmail_access_token()
+
+    req = Request(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        data=payload,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urlopen(req, timeout=20) as response:
+            body = response.read().decode("utf-8", errors="replace")
+            if response.status < 200 or response.status >= 300:
+                raise RuntimeError(f"Gmail API HTTP {response.status}: {body}")
+        print(f"[EMAIL SENT] gmail_api verification -> {to_email}", flush=True)
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        print(f"[EMAIL ERROR] Gmail API HTTP {exc.code}: {detail}", flush=True)
+        raise RuntimeError("驗證信寄送失敗，請檢查 Google 寄信授權")
+    except URLError as exc:
+        print(f"[EMAIL ERROR] Gmail API network error: {exc}", flush=True)
+        raise RuntimeError("Google 寄信服務暫時無法連線，請稍後再試")
+    except Exception as exc:
+        print(f"[EMAIL ERROR] Gmail API {type(exc).__name__}: {exc}", flush=True)
+        raise RuntimeError("驗證信寄送失敗，請稍後再試或聯絡管理者")
+
 def send_verification(email, token):
     link = f"{API_PUBLIC_URL}/auth/verify?token={token}"
 
@@ -222,6 +308,10 @@ def send_verification(email, token):
       </div>
     </div>
     """
+
+    if MAIL_MODE == "gmail_api":
+        gmail_send_message(email, subject, text_body, html_body)
+        return
 
     if MAIL_MODE == "resend":
         if not RESEND_API_KEY:
@@ -343,7 +433,7 @@ def health():
 
 @app.get("/public/config")
 def public_config():
-    return jsonify(trial_limit=TRIAL_LIMIT, plan_days=PLAN_DAYS, plan_price=PLAN_PRICE, ecpay_mode=ECPAY_MODE, mail_enabled=((MAIL_MODE == "resend" and bool(RESEND_API_KEY)) or (MAIL_MODE == "smtp" and bool(SMTP_HOST and SMTP_USER and SMTP_PASSWORD and SMTP_FROM))))
+    return jsonify(trial_limit=TRIAL_LIMIT, plan_days=PLAN_DAYS, plan_price=PLAN_PRICE, ecpay_mode=ECPAY_MODE, mail_enabled=((MAIL_MODE == "gmail_api" and bool(GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET and GMAIL_REFRESH_TOKEN and GMAIL_FROM)) or (MAIL_MODE == "resend" and bool(RESEND_API_KEY)) or (MAIL_MODE == "smtp" and bool(SMTP_HOST and SMTP_USER and SMTP_PASSWORD and SMTP_FROM))))
 
 @app.post("/auth/register")
 def register():
