@@ -1,4 +1,5 @@
 const CONNECTOR = "http://127.0.0.1:8765";
+const MIN_CONNECTOR_VERSION = "0.5.5";
 const $ = (id) => document.getElementById(id);
 
 let connectorOnline = false;
@@ -6,6 +7,19 @@ let lastLogKey = "";
 let authToken = sessionStorage.getItem("serviceConflictToken") || "";
 let currentUser = null;
 let setupMode = false;
+
+function versionAtLeast(current, required) {
+  const a = String(current || "0").split(".").map(n => parseInt(n, 10) || 0);
+  const b = String(required || "0").split(".").map(n => parseInt(n, 10) || 0);
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    const x = a[i] || 0;
+    const y = b[i] || 0;
+    if (x > y) return true;
+    if (x < y) return false;
+  }
+  return true;
+}
 
 function log(msg, key="") {
   const dedupeKey = key || msg;
@@ -164,7 +178,7 @@ async function bootstrapAuthFlow() {
   connectorOnline = true;
   setConnectorState(true, health.version || "");
 
-  if (!health.auth) {
+  if (!health.auth || !versionAtLeast(health.version, MIN_CONNECTOR_VERSION)) {
     showConnectorStep("outdated", health.version || "");
     return false;
   }
@@ -478,13 +492,43 @@ function render(rows) {
   `).join("");
 }
 
+function updateAnalysisMode() {
+  const monthly = $("modeMonth").checked;
+  $("dayAnalysisFields").classList.toggle("hidden", monthly);
+  $("monthAnalysisFields").classList.toggle("hidden", !monthly);
+
+  if (monthly) {
+    const month = $("monthInput").value;
+    $("analysisRangeHint").textContent = month
+      ? "將分析 " + month + " 整月份服務紀錄"
+      : "請選擇要分析的月份";
+  } else {
+    const date = $("dateInput").value;
+    $("analysisRangeHint").textContent = date
+      ? "將分析 " + date + " 當日服務紀錄"
+      : "請選擇要分析的日期";
+  }
+}
+
 async function analyze() {
   if (!(await ping(true))) return;
-  const date = $('dateInput').value;
+
+  const monthly = $("modeMonth").checked;
+  const payload = monthly
+    ? {mode:"month", month:$("monthInput").value}
+    : {mode:"day", date:$("dateInput").value};
+
+  if ((monthly && !payload.month) || (!monthly && !payload.date)) {
+    $("summary").textContent = monthly ? "請先選擇月份" : "請先選擇日期";
+    return;
+  }
+
   try {
-    $('summary').textContent = '正在查詢照管個案與 QD120A 服務紀錄…';
+    $('summary').textContent = monthly
+      ? '正在查詢整月份照管個案與 QD120A 服務紀錄，資料較多請稍候…'
+      : '正在查詢照管個案與 QD120A 服務紀錄…';
     $('results').innerHTML = '';
-    const data = await api('/services', {method:'POST', body: JSON.stringify({date})}, 180000);
+    const data = await api('/services', {method:'POST', body: JSON.stringify(payload)}, monthly ? 600000 : 180000);
     log('照管 QD120A：取得 ' + data.rows.length + ' 筆服務資料');
     renderServerAnalysis(data);
   } catch(e) {
@@ -515,7 +559,14 @@ $("btnDemo").onclick = async ()=>{
   log("已載入示範資料");
 };
 
-$("dateInput").value = new Date().toISOString().slice(0,10);
+const todayIso = new Date().toISOString().slice(0,10);
+$("dateInput").value = todayIso;
+$("monthInput").value = todayIso.slice(0,7);
+$("modeDay").addEventListener("change", updateAnalysisMode);
+$("modeMonth").addEventListener("change", updateAnalysisMode);
+$("dateInput").addEventListener("change", updateAnalysisMode);
+$("monthInput").addEventListener("change", updateAnalysisMode);
+updateAnalysisMode();
 
 $("btnAuthSubmit").onclick = submitAuth;
 $("authPassword").addEventListener("keydown", e => {
